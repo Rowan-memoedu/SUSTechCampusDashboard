@@ -7,7 +7,7 @@ from sustech_dashboard.core import (
     CHINA_TZ, remaining_seconds, safe_name, submission_status, sync_attachments,
 )
 from sustech_dashboard.provider import Blackboard, term_matches
-from sustech_dashboard.credentials import protect_password, unprotect_password
+from sustech_dashboard.dpapi_store import protect_password, unprotect_password
 
 
 class FakeAttachments:

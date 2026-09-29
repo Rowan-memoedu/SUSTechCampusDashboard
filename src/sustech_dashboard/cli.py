@@ -9,7 +9,7 @@ import os
 import sys
 
 from .core import DATA_ROOT, load_json
-from .credentials import CREDENTIALS_PATH, load_credentials, save_credentials
+from .dpapi_store import CREDENTIALS_PATH, load_credentials, save_credentials
 
 
 def _init_environment() -> None:
