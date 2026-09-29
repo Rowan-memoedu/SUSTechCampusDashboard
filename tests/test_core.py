@@ -2,6 +2,8 @@ import os
 from datetime import date, datetime
 
 import pytest
+from requests import Response
+from requests.exceptions import HTTPError
 
 from sustech_dashboard.core import (
     CHINA_TZ, remaining_seconds, safe_name, submission_status, sync_attachments,
@@ -103,6 +105,31 @@ def test_blackboard_adapter_collects_file_document_and_assignment_attachments():
     files = bb.attachments("_course_1")
     assert len(files) == 3
     assert {x["title"] for x in files} == {"文件", "讲义", "作业"}
+
+
+def test_forbidden_blackboard_folder_is_skipped_but_other_http_errors_fail():
+    bb = Blackboard.__new__(Blackboard)
+    bb.warnings = []
+
+    def results(path):
+        if path.endswith("/contents"):
+            return [{"id": "_folder_1", "hasChildren": True, "contentHandler": {"id": "resource/x-bb-folder"}}]
+        response = Response()
+        response.status_code = 403
+        raise HTTPError(response=response)
+
+    bb.results = results
+    assert bb.attachments("_course_1") == []
+    assert "1 处内容" in bb.warnings[0]
+
+    def server_error(path):
+        response = Response()
+        response.status_code = 500
+        raise HTTPError(response=response)
+
+    bb.results = server_error
+    with pytest.raises(HTTPError):
+        bb.attachments("_course_1")
 
 
 def test_blackboard_adapter_preserves_unknown_when_attempt_api_fails():

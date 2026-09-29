@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from requests.exceptions import HTTPError
+
 from .core import CHINA_TZ, parse_dt, submission_status
 
 
@@ -139,24 +141,45 @@ class Blackboard:
         for item in self.results(path):
             yield item
             if item.get("hasChildren"):
-                yield from self._contents(course_id, item["id"])
+                try:
+                    yield from self._contents(course_id, item["id"])
+                except HTTPError as exc:
+                    if exc.response is None or exc.response.status_code != 403:
+                        raise
+                    self._inaccessible_folders = getattr(self, "_inaccessible_folders", 0) + 1
 
     def attachments(self, course_id: str) -> list[dict[str, str]]:
         out: list[dict[str, str]] = []
+        before = getattr(self, "_inaccessible_folders", 0)
+        inaccessible_attachments = 0
         supported = {"resource/x-bb-file", "resource/x-bb-document", "resource/x-bb-assignment"}
         for item in self._contents(course_id):
             if item.get("contentHandler", {}).get("id") not in supported:
                 continue
             iid = item["id"]
-            for attachment in self.results(
-                f"/learn/api/public/v1/courses/{course_id}/contents/{iid}/attachments"
-            ):
+            try:
+                attachments = self.results(
+                    f"/learn/api/public/v1/courses/{course_id}/contents/{iid}/attachments"
+                )
+            except HTTPError as exc:
+                if exc.response is None or exc.response.status_code != 403:
+                    raise
+                inaccessible_attachments += 1
+                continue
+            for attachment in attachments:
                 out.append({
                     "content_id": iid,
                     "id": attachment["id"],
                     "file_name": attachment.get("fileName") or "附件",
                     "title": item.get("title", ""),
                 })
+        skipped = getattr(self, "_inaccessible_folders", 0) - before + inaccessible_attachments
+        if skipped:
+            course_name = next(
+                (course["name"] for course in getattr(self, "_courses", []) or [] if course["id"] == course_id),
+                course_id,
+            )
+            self.warnings.append(f"{course_name} 有 {skipped} 处内容暂无访问权限，已按当前可见内容扫描")
         return out
 
     def download_attachment(self, course_id: str, content_id: str, attachment_id: str, target: Path) -> None:
