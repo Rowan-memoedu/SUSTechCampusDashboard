@@ -1,3 +1,4 @@
+import os
 from datetime import date, datetime
 
 import pytest
@@ -6,6 +7,7 @@ from sustech_dashboard.core import (
     CHINA_TZ, remaining_seconds, safe_name, submission_status, sync_attachments,
 )
 from sustech_dashboard.provider import Blackboard, term_matches
+from sustech_dashboard.credentials import protect_password, unprotect_password
 
 
 class FakeAttachments:
@@ -116,3 +118,11 @@ def test_blackboard_adapter_preserves_unknown_when_attempt_api_fails():
 
     bb.results = results
     assert bb.assignments()[0]["status"] == "unknown"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows DPAPI only")
+def test_windows_dpapi_credential_roundtrip_without_plaintext_in_cipher():
+    password = "测试密码-123"
+    encrypted = protect_password(password)
+    assert password not in encrypted
+    assert unprotect_password(encrypted) == password

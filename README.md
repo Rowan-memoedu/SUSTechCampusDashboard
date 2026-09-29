@@ -30,13 +30,13 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' status
 
 ## 校园登录
 
-校园数据需要个人 CAS 登录。凭据尚未配置时，页面只显示同步错误。获得用户单独授权后，在本机交互终端运行 `configure`，输入学号和隐藏的密码；工具会把凭据保存在 `D:\AppData\SUSTechCampusDashboard\credentials.txt` 并将文件读取权限限制为当前 Windows 用户。密码不会作为命令参数、日志或 Git 文件传递。上游库的会话只驻留内存。
+校园数据需要个人 CAS 登录。凭据尚未配置时，页面只显示同步错误。获得用户单独授权后，在本机交互终端运行 `configure`，输入学号和隐藏的密码；工具用 Windows DPAPI 加密密码并保存在 `D:\AppData\SUSTechCampusDashboard\credentials.dpapi.json`，同时将目录访问权限限制为当前 Windows 用户。密码不会作为命令参数、日志、明文文件或 Git 文件传递；运行时解密后只在进程内交给上游库。
 
 ```powershell
 pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' configure
 ```
 
-要撤销本机授权，可移除该凭据文件；这不会删除已经下载的课程资料或页面快照。
+要撤销本机授权，可移除该凭据文件；这不会删除已经下载的课程资料或页面快照。加密文件仅可由当前 Windows 用户身份在本机解密，重装系统或迁移账户后需要重新配置。
 
 ## 项目与验证
 
