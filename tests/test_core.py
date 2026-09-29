@@ -90,6 +90,30 @@ def test_term_is_checked_against_live_semester():
     assert not term_matches({"name": "2026 Spring"}, semester, date(2026, 9, 29))
 
 
+def test_course_list_excludes_enrollments_before_september_2026(monkeypatch):
+    from sustech_survival.tis import schedule
+
+    monkeypatch.setattr(schedule, "current_semester", lambda: {"XN": "2026-2027", "XQ": "1"})
+    bb = Blackboard.__new__(Blackboard)
+    bb._courses = None
+    bb.warnings = []
+    bb.unclassified = []
+    bb.results = lambda path: [
+        {"courseId": "_old", "created": "2025-09-04T02:00:00Z"},
+        {"courseId": "_new", "created": "2026-09-04T02:00:00Z"},
+    ]
+
+    def json_for(path):
+        if path.endswith("/users/me"):
+            return {"id": "_me"}
+        if "/terms/" in path:
+            return {"name": "2026 Fall"}
+        return {"name": path.rsplit("/", 1)[-1], "termId": "_fall"}
+
+    bb.json = json_for
+    assert bb.current_courses() == [{"id": "_new", "name": "_new"}]
+
+
 def test_untrusted_path_component_is_sanitized():
     assert safe_name("../math\\slides") == "_math_slides"
 
@@ -144,7 +168,32 @@ def test_blackboard_adapter_preserves_unknown_when_attempt_api_fails():
         raise RuntimeError("failed")
 
     bb.results = results
+    bb.json = lambda path: {"created": "2026-09-01T00:00:00Z"}
     assert bb.assignments()[0]["status"] == "unknown"
+
+
+def test_assignment_list_excludes_old_and_inaccessible_tasks_but_keeps_new_undated():
+    bb = Blackboard.__new__(Blackboard)
+    bb.warnings = []
+    bb.current_courses = lambda: [{"id": "_course_1", "name": "数学"}]
+    columns = [
+        {"id": "_old", "name": "旧作业", "contentId": "_old_content", "grading": {"type": "Attempts", "due": "2025-10-01T00:00:00Z"}},
+        {"id": "_new", "name": "新作业", "contentId": "_new_content", "grading": {"type": "Attempts", "due": "2026-09-30T00:00:00Z"}},
+        {"id": "_undated_old", "name": "旧无截止", "contentId": "_undated_old_content", "grading": {"type": "Attempts"}},
+        {"id": "_undated_new", "name": "新无截止", "contentId": "_undated_new_content", "grading": {"type": "Attempts"}},
+        {"id": "_hidden", "name": "不可访问", "contentId": "_hidden_content", "grading": {"type": "Attempts", "due": "2026-10-01T00:00:00Z"}},
+    ]
+    bb.results = lambda path: columns if path.endswith("/gradebook/columns") else []
+
+    def content_for(path):
+        if path.endswith("/_hidden_content"):
+            response = Response()
+            response.status_code = 403
+            raise HTTPError(response=response)
+        return {"created": "2025-10-01T00:00:00Z" if path.endswith("/_undated_old_content") else "2026-09-03T00:00:00Z"}
+
+    bb.json = content_for
+    assert [item["name"] for item in bb.assignments()] == ["新作业", "新无截止"]
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows DPAPI only")

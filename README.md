@@ -2,6 +2,8 @@
 
 基于 [`sustech_survival`](https://github.com/dumixthestpd/sustech_survival) 的本机只读工具。一个网页显示每日概览、Blackboard 课程与作业状态及剩余时间、TIS 考试和待评教、图书馆空闲数与本人预约、E-Hall 可用场地与本人预约。命令行也可以单独查询预约。
 
+Blackboard 课程仅保留 2026 年 9 月 1 日及以后选课、且属于当前学期的课程。作业仅显示截止日期不早于该日且当前可访问的条目；没有截止日期的条目，须能确认内容创建于该日及以后。旧成绩簿任务不计入未提交数量。
+
 ## 运行
 
 Windows PowerShell 7：

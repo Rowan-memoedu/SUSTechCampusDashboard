@@ -15,6 +15,7 @@ from .core import CHINA_TZ, parse_dt, submission_status
 
 
 BB_BASE = "https://bb.sustech.edu.cn"
+COURSE_CUTOFF = date(2026, 9, 1)
 
 
 def _jsonable(value: Any) -> Any:
@@ -110,6 +111,12 @@ class Blackboard:
                 continue
             course = self.json(f"/learn/api/public/v1/courses/{cid}")
             name = course.get("name") or cid
+            enrolled_at = parse_dt(enrollment.get("created"))
+            if enrolled_at is None:
+                unknown.append(name)
+                continue
+            if enrolled_at.date() < COURSE_CUTOFF:
+                continue
             tid = course.get("termId")
             if tid:
                 if tid not in term_cache:
@@ -207,6 +214,23 @@ class Blackboard:
             for col in columns:
                 if col.get("grading", {}).get("type") != "Attempts" or not col.get("contentId"):
                     continue
+                due = col.get("grading", {}).get("due")
+                due_at = parse_dt(due)
+                if due and due_at is None:
+                    self.warnings.append(f"{course['name']}：有作业截止时间无法解析，已跳过")
+                    continue
+                if due_at and due_at.date() < COURSE_CUTOFF:
+                    continue
+                try:
+                    content = self.json(f"/learn/api/public/v1/courses/{cid}/contents/{col['contentId']}")
+                except HTTPError as exc:
+                    if exc.response is None or exc.response.status_code not in {403, 404}:
+                        raise
+                    continue
+                if not due_at:
+                    created_at = parse_dt(content.get("created"))
+                    if created_at is None or created_at.date() < COURSE_CUTOFF:
+                        continue
                 try:
                     attempts = self.results(
                         f"/learn/api/public/v1/courses/{cid}/gradebook/columns/{col['id']}/attempts"
@@ -217,7 +241,7 @@ class Blackboard:
                     "course": course["name"], "course_id": cid,
                     "name": col.get("name") or "未命名作业",
                     "content_id": col["contentId"],
-                    "due": col.get("grading", {}).get("due") or None,
+                    "due": due or None,
                     "status": submission_status(attempts),
                     "attempts": len(attempts) if attempts is not None else None,
                 })
