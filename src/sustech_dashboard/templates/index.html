@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>南科大校园面板</title>
+  <style>
+    :root { color-scheme: light; --ink:#142b35; --muted:#607782; --line:#d9e4e7; --blue:#086c85; --bg:#f3f7f7; --card:#fff; --warn:#9c501d; --bad:#a33d3d; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,"Microsoft YaHei",sans-serif; }
+    header { background:#103a49; color:#fff; padding:24px max(24px,calc((100vw - 1200px)/2)); }
+    header h1 { font-size:25px; margin:0 0 4px; }
+    header p { margin:0; color:#c6dde4; }
+    main { max-width:1200px; margin:24px auto 50px; padding:0 18px; display:grid; grid-template-columns:2fr 1fr; gap:18px; }
+    .wide { grid-column:1/-1; }
+    section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; box-shadow:0 2px 8px #173d4510; min-width:0; }
+    h2 { margin:0 0 13px; font-size:19px; }
+    h3 { margin:20px 0 7px; font-size:15px; }
+    .muted { color:var(--muted); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:10px; }
+    .metric { padding:11px 13px; background:#edf5f6; border-radius:9px; }
+    .metric strong { display:block; font-size:20px; }
+    .metric span { color:var(--muted); font-size:12px; }
+    .row { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; border-top:1px solid var(--line); padding:10px 0; }
+    .row:first-child { border-top:0; }
+    .row-main { min-width:0; }
+    .row-title { font-weight:600; word-break:break-word; }
+    .row-sub { color:var(--muted); font-size:13px; }
+    .pill { display:inline-block; border-radius:100px; padding:2px 9px; white-space:nowrap; background:#e6f2ee; color:#14654e; font-size:12px; }
+    .pill.todo { background:#fff1df; color:var(--warn); }
+    .pill.draft,.pill.unknown { background:#e8edf1; color:#536b7a; }
+    .pill.overdue { background:#fbeaea; color:var(--bad); }
+    .countdown { font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
+    .notice { border-left:3px solid var(--warn); background:#fff8ed; padding:8px 12px; margin:7px 0; font-size:13px; white-space:pre-wrap; }
+    .ok { color:#14654e; }
+    .empty { color:var(--muted); padding:12px 0; }
+    @media(max-width:850px) { main { grid-template-columns:1fr; } .wide { grid-column:auto; } }
+  </style>
+</head>
+<body>
+  <header><h1>南科大校园面板</h1><p id="updated">正在读取本机数据…</p></header>
+  <main>
+    <section class="wide" id="problems" hidden><h2>同步状态</h2><div id="problem-list"></div></section>
+    <section class="wide"><h2>今日概览</h2><div class="grid" id="metrics"></div><div id="classes"></div></section>
+    <section><h2>Blackboard 作业</h2><p class="muted">“未提交”基于成功读取的提交记录；查询失败显示“未知”。页面不代替 Blackboard 的最终提交回执。</p><div id="assignments"></div></section>
+    <section><h2>考试与待评教</h2><h3>后续考试</h3><div id="exams"></div><h3>待评教</h3><div id="evals"></div></section>
+    <section><h2>课程与资料</h2><div id="courses"></div><p class="muted" id="downloads"></p></section>
+    <section><h2>场地与预约</h2><h3>图书馆当前空闲数</h3><div id="library-idle"></div><h3>我的图书馆预约</h3><div id="library-mine"></div><h3>E-Hall 可用场地</h3><div id="ehall-rooms"></div><h3>我的 E-Hall 预约</h3><div id="ehall-mine"></div></section>
+  </main>
+  <script>
+  const $ = id => document.getElementById(id);
+  function clear(id) { const el=$(id); el.replaceChildren(); return el; }
+  function node(tag, text, cls) { const el=document.createElement(tag); el.textContent=String(text ?? ''); if(cls) el.className=cls; return el; }
+  function empty(el, text='暂无数据') { el.append(node('div',text,'empty')); }
+  function row(el, title, subtitle='', right='') {
+    const outer=node('div','','row'), main=node('div','','row-main');
+    main.append(node('div',title,'row-title')); if(subtitle) main.append(node('div',subtitle,'row-sub'));
+    outer.append(main); if(right) outer.append(node('div',right,'countdown')); el.append(outer); return outer;
+  }
+  function countdown(iso) {
+    if(!iso) return '未标截止时间';
+    const ms=new Date(iso).getTime()-Date.now(); if(!Number.isFinite(ms)) return '时间不明';
+    if(ms<0) return '已截止';
+    const mins=Math.ceil(ms/60000), days=Math.floor(mins/1440), hours=Math.floor((mins%1440)/60);
+    return days ? `${days} 天 ${hours} 小时` : hours ? `${hours} 小时 ${mins%60} 分` : `${mins} 分钟`;
+  }
+  const statusText={submitted:'已提交',not_submitted:'未提交',draft:'草稿未提交',unknown:'状态未知'};
+  function metric(el,value,label) { const box=node('div','','metric'); box.append(node('strong',value),node('span',label)); el.append(box); }
+  function render(data) {
+    $('updated').textContent=data.updated_at ? `最近同步：${new Date(data.updated_at).toLocaleString('zh-CN')} · 页面每分钟更新倒计时` : '尚未完成首次同步';
+    const issues=[...Object.entries(data.errors||{}).map(([k,v])=>`${k}：${v}`),...(data.warnings||[])];
+    $('problems').hidden=!issues.length; const problem=clear('problem-list'); issues.forEach(v=>problem.append(node('div',v,'notice')));
+    const tis=data.tis||{}, assignments=data.assignments||[], pending=assignments.filter(a=>a.status==='not_submitted'||a.status==='draft');
+    const metrics=clear('metrics');
+    metric(metrics,tis.semester||'—','当前学期'); metric(metrics,tis.week??'—','教学周');
+    metric(metrics,pending.length,'未提交或草稿作业'); metric(metrics,(tis.exams||[]).length,'后续考试');
+    const weather=data.weather||{}; if(weather.condition) metric(metrics,`${weather.temperature??'—'}°C`,weather.condition);
+    const classes=clear('classes'); classes.append(node('h3','今日课程'));
+    const todays=tis.today_classes||[]; if(!todays.length) empty(classes,'今日无课或课表暂不可用');
+    else todays.forEach(c=>row(classes,c.KCMC||c.SKSJ||'课程',c.SKSJ||''));
+    const tasks=clear('assignments'); if(!assignments.length) empty(tasks,'暂无作业，或 Blackboard 尚未成功同步');
+    else assignments.forEach(a=>{
+      const outer=row(tasks,a.name,`${a.course} · ${a.due?new Date(a.due).toLocaleString('zh-CN'):'未标截止时间'}`);
+      const right=node('div','','');
+      right.append(node('div',statusText[a.status]||'状态未知',`pill ${a.status==='not_submitted'?'todo':a.status}`));
+      right.append(node('div',countdown(a.due),'countdown'));
+      outer.append(right);
+    });
+    const exams=clear('exams'); if(!(tis.exams||[]).length) empty(exams,'暂无已发布的后续考试');
+    else tis.exams.forEach(e=>row(exams,e.KCMC||'考试',`${e.KSRQ||''} ${e.KSJTSJ||''} · ${e.JXLMC||''} ${e.JXCDMC||''}`));
+    const evals=clear('evals'); if(!(tis.pending_evals||[]).length) empty(evals,'暂无待评教');
+    else tis.pending_evals.forEach(e=>row(evals,e.course,e.status));
+    const courses=clear('courses'); if(!(data.blackboard_courses||[]).length) empty(courses,'暂无当前学期课程');
+    else data.blackboard_courses.forEach(c=>row(courses,c.name));
+    const dl=data.downloads||{};
+    $('downloads').textContent=dl.mode==='baseline' ? `首次成功扫描已记录 ${dl.seen} 个现有附件；不会下载旧资料。` :
+      dl.mode==='incremental' ? `本轮新下载 ${dl.downloaded} 个附件；${(dl.failed||[]).length} 个失败，后续会重试。目录：D:\\download` : '附件同步尚未完成。';
+    const booking=data.bookings||{};
+    const libIdle=clear('library-idle'); if(!(booking.library_idle||[]).length) empty(libIdle); else booking.library_idle.forEach(x=>row(libIdle,x.name,`${x.idle_quantity}/${x.total_quantity} 空闲`));
+    const libMine=clear('library-mine'); if(!(booking.library_mine||[]).length) empty(libMine); else booking.library_mine.forEach(x=>row(libMine,x.dev_name||x.room_name||'研讨室',`${x.begin_time||''} — ${x.end_time||''}`));
+    const ehall=clear('ehall-rooms'); if(!(booking.ehall_available||[]).length) empty(ehall); else booking.ehall_available.forEach(x=>row(ehall,x.name,`${x.location||''} · ${x.room_type||''}`));
+    const ehallMine=clear('ehall-mine'); if(!(booking.ehall_mine||[]).length) empty(ehallMine); else booking.ehall_mine.forEach(x=>row(ehallMine,x.room_name||x.title||'场地预约',`${x.start_at||''} — ${x.end_at||''} · ${x.status||''}`));
+  }
+  async function refresh() { try { const r=await fetch('/api/status',{cache:'no-store'}); if(!r.ok) throw Error(r.status); render(await r.json()); } catch(e) { $('updated').textContent=`读取本机数据失败：${e}`; } }
+  refresh(); setInterval(refresh,60000);
+  </script>
+</body>
+</html>
