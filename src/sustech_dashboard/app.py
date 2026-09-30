@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 from .core import CHINA_TZ, DATA_ROOT, DOWNLOAD_ROOT, load_json, save_json, sync_attachments
 from .provider import Blackboard, read_bookings, read_tis
+from .room_monitor import schedule, validate_target
+from . import monitor_remote
 
 
 SNAPSHOT_PATH = DATA_ROOT / "snapshot.json"
@@ -66,14 +69,71 @@ def sync_all() -> dict[str, Any]:
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.json.ensure_ascii = False
+    csrf = secrets.token_urlsafe(32)
+
+    def local_request(write: bool = False) -> None:
+        if request.host not in {"127.0.0.1", "localhost"} and not (
+            request.host.startswith("127.0.0.1:") or request.host.startswith("localhost:")
+        ):
+            raise ValueError("仅允许本机访问")
+        if write:
+            origin = request.headers.get("Origin", "")
+            if origin not in {f"http://{request.host}", f"https://{request.host}"}:
+                raise ValueError("请求来源不匹配")
+            if not secrets.compare_digest(request.headers.get("X-CSRF-Token", ""), csrf):
+                raise ValueError("页面令牌无效，请刷新页面")
 
     @app.get("/")
     def index():
-        return render_template("index.html")
+        return render_template("index.html", csrf_token=csrf)
 
     @app.get("/api/status")
     def status():
         return jsonify(load_json(SNAPSHOT_PATH, {"updated_at": None, "errors": {"sync": "尚未完成首次同步"}}))
+
+    @app.get("/api/discussion-rooms")
+    def discussion_rooms():
+        try:
+            local_request()
+            from sustech_survival.lib.booking.client import lib_booking
+            day = date.fromisoformat(request.args["date"])
+            return jsonify({"date": day.isoformat(), "rooms": schedule(lib_booking(), day)})
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.get("/api/room-watch")
+    def room_watch():
+        try:
+            local_request()
+            return jsonify(monitor_remote.call("status"))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 503
+
+    @app.post("/api/room-watch")
+    def create_room_watch():
+        try:
+            local_request(write=True)
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError("请求格式无效")
+            from sustech_survival.lib.booking.client import lib_booking
+            day = date.fromisoformat(payload["begin"][:10])
+            rooms = schedule(lib_booking(), day)
+            room = next((r for r in rooms if r["id"] == int(payload["room_id"])), None)
+            if room is None:
+                raise ValueError("目标讨论间不可用")
+            target = validate_target(payload, room)
+            return jsonify(monitor_remote.call("create", target))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.post("/api/room-watch/stop")
+    def stop_room_watch():
+        try:
+            local_request(write=True)
+            return jsonify(monitor_remote.call("stop"))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 400
 
     return app
 

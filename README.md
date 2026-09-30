@@ -1,6 +1,6 @@
 # 南科大校园面板
 
-基于 [`sustech_survival`](https://github.com/dumixthestpd/sustech_survival) 的本机只读工具。一个网页显示每日概览、Blackboard 课程与作业状态及剩余时间、TIS 考试和待评教、图书馆空闲数与本人预约、E-Hall 可用场地与本人预约。命令行也可以单独查询预约。
+基于 [`sustech_survival`](https://github.com/dumixthestpd/sustech_survival) 的校园工具。一个本机网页显示每日概览、Blackboard 课程与作业状态及剩余时间、TIS 考试和待评教、图书馆空闲数与本人预约、E-Hall 可用场地与本人预约，并提供讨论间具体预约安排和后台预约监控。命令行也可以单独查询预约。
 
 Blackboard 课程仅保留 2026 年 9 月 1 日及以后选课、且属于当前学期的课程。作业仅显示截止日期不早于该日且当前可访问的条目；没有截止日期的条目，须能确认内容创建于该日及以后。旧成绩簿任务不计入未提交数量。
 
@@ -22,7 +22,13 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' booking
 pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' status
 ```
 
-`sync` 只读取校园系统并下载新附件；不提交作业、不预约场地、不评教。`bookings` 输出图书馆当前空闲数、未来 30 天本人图书馆预约、E-Hall 可用场地与本人预约。
+`sync` 只读取校园系统并下载新附件；不提交作业、不预约场地、不评教。`bookings` 输出图书馆当前空闲数、未来 30 天本人图书馆预约、E-Hall 可用场地与本人预约。只有网页上明确提交讨论间监控目标后，远端服务才会在目标时段空闲时尝试预约。
+
+## 讨论间监控
+
+页面可选择今天至后天的讨论间和 15 分钟刻度的预约时段，查看该日的已占用时间。选定后填写预约主题；3 人起的讨论间还须提供至少两位共同申请人的图书馆系统 `accNo`。本机网页通过 SSH 将监控目标交给腾讯服务器上的独立服务。服务器每 30 秒检查一次，仅当整个目标时段空闲才提交一次预约。成功、时段开始、手动停止或提交结果不确定都会终止自动尝试；结果不确定需到图书馆预约系统核查，程序不会盲目重试，也不会自动取消实际预约。
+
+远端服务运行于独立 `sustechmon` 系统用户、`/opt/sustech-room-monitor` 源码与 `/var/lib/sustech-room-monitor` 状态目录，不开公网端口，也不修改现有网站。CAS 凭据副本使用 systemd 主机密钥加密，由服务运行时通过 `LoadCredentialEncrypted` 装载。可停用 `sustech-room-monitor.service` 并删除加密凭据来撤销服务器端自动登录授权；停用服务不取消既有预约。
 
 ## 附件起点
 
@@ -47,4 +53,4 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' configu
 - 上游依赖固定在提交 `acd20323af6d3bc91c3e89974283d39d85109678`，避免更新静默改变接口行为。
 - 离线测试：`D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe -m pytest -q D:\Projects\SUSTechCampusDashboard\tests`。
 
-当前未配置校园账号，真实课程、附件下载、预约和作业状态仍需登录后验收。Blackboard 提交状态依据官方尝试状态判定：无尝试、草稿、已提交、读取失败分别显示，不把读取失败标为未提交。图书馆空闲数来自当前类别汇总；不表示指定日期和时段可预约。
+本机与云端的校园账号只读登录均已验收；自动预约写入尚未触发，须以首次由用户在网页提交的监控任务和图书馆系统回执为准。Blackboard 提交状态依据官方尝试状态判定：无尝试、草稿、已提交、读取失败分别显示，不把读取失败标为未提交。图书馆首页空闲数来自当前类别汇总；指定日期和时段请以讨论间面板查询为准。

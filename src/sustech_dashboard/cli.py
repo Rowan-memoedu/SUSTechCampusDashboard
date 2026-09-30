@@ -1,4 +1,4 @@
-"""Local commands. No campus write operations are exposed."""
+"""Local dashboard commands; booking writes require an explicit web watch."""
 
 from __future__ import annotations
 

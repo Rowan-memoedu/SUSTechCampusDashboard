@@ -1,0 +1,25 @@
+[Unit]
+Description=SUSTech discussion room reservation monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sustechmon
+Group=sustechmon
+WorkingDirectory=/var/lib/sustech-room-monitor
+Environment=HOME=/var/lib/sustech-room-monitor
+Environment=SUSTECH_MONITOR_STATE=/var/lib/sustech-room-monitor/watch.json
+LoadCredentialEncrypted=sustech-cas:/etc/credstore.encrypted/sustech-cas
+ExecStart=/opt/sustech-room-monitor/venv/bin/python -m sustech_dashboard.monitor_cli worker
+Restart=always
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sustech-room-monitor
+
+[Install]
+WantedBy=multi-user.target

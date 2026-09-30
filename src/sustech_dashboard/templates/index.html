@@ -34,6 +34,11 @@
     .notice { border-left:3px solid var(--warn); background:#fff8ed; padding:8px 12px; margin:7px 0; font-size:13px; white-space:pre-wrap; }
     .ok { color:#14654e; }
     .empty { color:var(--muted); padding:12px 0; }
+    .room-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+    .room-controls label { display:grid; gap:4px; min-width:145px; }
+    .room-controls input,.room-controls select { padding:7px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+    button { padding:8px 13px; border:0; border-radius:6px; background:var(--blue); color:#fff; cursor:pointer; font:inherit; }
+    button:disabled { opacity:.55; cursor:wait; }
     @media(max-width:850px) { main { grid-template-columns:1fr; } .wide { grid-column:auto; } }
   </style>
 </head>
@@ -46,8 +51,29 @@
     <section><h2>考试与待评教</h2><h3>后续考试</h3><div id="exams"></div><h3>待评教</h3><div id="evals"></div></section>
     <section><h2>课程与资料</h2><div id="courses"></div><p class="muted" id="downloads"></p></section>
     <section><h2>场地与预约</h2><h3>图书馆当前空闲数</h3><div id="library-idle"></div><h3>我的图书馆预约</h3><div id="library-mine"></div><h3>E-Hall 可用场地</h3><div id="ehall-rooms"></div><h3>我的 E-Hall 预约</h3><div id="ehall-mine"></div></section>
+    <section class="wide"><h2>讨论间预约与监控</h2>
+      <p class="muted">选择日期和讨论间可查看已占用时段。提交监控后，腾讯服务器每 30 秒检查一次；完整时段空闲时仅尝试预约一次。开始时间到达、预约成功或结果不确定时会停止。</p>
+      <div class="room-controls">
+        <label>日期<input id="room-date" type="date"></label>
+        <label>讨论间<select id="room-choice"></select></label>
+        <button id="room-load" type="button">查看预约情况</button>
+      </div>
+      <div id="room-schedule"></div>
+      <h3>提交监控目标</h3>
+      <div class="room-controls">
+        <label>开始<input id="room-begin" type="time" step="900" value="10:00"></label>
+        <label>结束<input id="room-end" type="time" step="900" value="12:00"></label>
+        <label>预约主题<input id="room-title" type="text" maxlength="80" placeholder="如：课程讨论"></label>
+        <label style="min-width:260px">共同申请人 accNo（多人间必填，逗号分隔）<input id="room-members" type="text" placeholder="两位或以上"></label>
+        <button id="room-submit" type="button">开始后台监控</button>
+      </div>
+      <p class="muted">3 人起的讨论间至少填 2 位共同申请人的图书馆系统 accNo。提交后网页只显示监控状态，不回显共同申请人编号。</p>
+      <h3>监控状态</h3><div id="room-watch"></div><button id="room-stop" type="button" hidden>停止监控</button>
+      <div id="room-message" class="notice" hidden></div>
+    </section>
   </main>
   <script>
+  const roomCsrf={{ csrf_token|tojson }};
   const $ = id => document.getElementById(id);
   function clear(id) { const el=$(id); el.replaceChildren(); return el; }
   function node(tag, text, cls) { const el=document.createElement(tag); el.textContent=String(text ?? ''); if(cls) el.className=cls; return el; }
@@ -102,6 +128,52 @@
     const ehallMine=clear('ehall-mine'); if(!(booking.ehall_mine||[]).length) empty(ehallMine); else booking.ehall_mine.forEach(x=>row(ehallMine,x.room_name||x.title||'场地预约',`${x.start_at||''} — ${x.end_at||''} · ${x.status||''}`));
   }
   async function refresh() { try { const r=await fetch('/api/status',{cache:'no-store'}); if(!r.ok) throw Error(r.status); render(await r.json()); } catch(e) { $('updated').textContent=`读取本机数据失败：${e}`; } }
+  let roomList=[];
+  function roomMessage(text) { $('room-message').textContent=text; $('room-message').hidden=!text; }
+  function localDate(offset=0) { const d=new Date(Date.now()+8*3600000+offset*86400000); return d.toISOString().slice(0,10); }
+  async function loadRooms() {
+    roomMessage(''); const day=$('room-date').value; const target=clear('room-schedule');
+    try {
+      const r=await fetch(`/api/discussion-rooms?date=${encodeURIComponent(day)}`,{cache:'no-store'}), data=await r.json();
+      if(!r.ok) throw Error(data.error||r.status);
+      roomList=data.rooms; const choice=clear('room-choice');
+      roomList.forEach(room=>{const opt=node('option',`${room.location} · ${room.name}（${room.min_people}–${room.max_people}人）`);opt.value=String(room.id);choice.append(opt);});
+      renderRoom();
+    } catch(e) { empty(target,`讨论间查询失败：${e.message}`); }
+  }
+  function renderRoom() {
+    const target=clear('room-schedule'), room=roomList.find(r=>String(r.id)===$('room-choice').value);
+    if(!room) {empty(target,'请选择讨论间');return;}
+    target.append(node('h3',`${room.name} · ${room.location}`));
+    target.append(node('div',`开放时间：${room.open.map(t=>`${t.openStartTime}–${t.openEndTime}`).join('、')||'暂无开放安排'}`,'muted'));
+    if(!room.busy.length) empty(target,'该日暂未显示已占用时段');
+    else room.busy.forEach(s=>row(target,'已占用',`${new Date(s.start).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}–${new Date(s.end).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`));
+  }
+  async function watchStatus() {
+    const target=clear('room-watch');
+    try {
+      const r=await fetch('/api/room-watch',{cache:'no-store'}), data=await r.json();
+      if(!r.ok) throw Error(data.error||r.status);
+      const labels={idle:'未监控',watching:'监控中',attempting:'正在提交预约',booked:'预约成功',expired:'时段已开始，监控结束',cancelled:'已停止',needs_review:'结果需人工核查'};
+      row(target,labels[data.status]||data.status,data.room_name?`${data.room_name} · ${new Date(data.begin).toLocaleString('zh-CN')}–${new Date(data.end).toLocaleTimeString('zh-CN')} · 已检查 ${data.checks||0} 次`:'');
+      if(data.error||data.last_error) target.append(node('div',data.error||data.last_error,'notice'));
+      if(data.reservation_id) target.append(node('div',`预约编号：${data.reservation_id}`,'ok'));
+      $('room-stop').hidden=!['watching','needs_review'].includes(data.status);
+      $('room-stop').textContent=data.status==='needs_review'?'已核查，解除监控':'停止监控';
+    } catch(e) { empty(target,`远程监控不可用：${e.message}`); $('room-stop').hidden=true; }
+  }
+  async function sendWatch(path,payload) {
+    roomMessage(''); const button=path.endsWith('stop')?$('room-stop'):$('room-submit'); button.disabled=true;
+    try {const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(payload||{})});const data=await r.json();if(!r.ok)throw Error(data.error||r.status);await watchStatus();}
+    catch(e){roomMessage(e.message);} finally {button.disabled=false;}
+  }
+  $('room-date').min=localDate(); $('room-date').max=localDate(2); $('room-date').value=localDate();
+  $('room-load').onclick=loadRooms; $('room-choice').onchange=renderRoom;
+  $('room-submit').onclick=()=>{const room=roomList.find(r=>String(r.id)===$('room-choice').value);if(!room){roomMessage('请先选择讨论间');return;}
+    const day=$('room-date').value,members=$('room-members').value.split(/[,，\s]+/).filter(Boolean);
+    sendWatch('/api/room-watch',{room_id:room.id,begin:`${day}T${$('room-begin').value}:00+08:00`,end:`${day}T${$('room-end').value}:00+08:00`,title:$('room-title').value,members});};
+  $('room-stop').onclick=()=>sendWatch('/api/room-watch/stop');
+  loadRooms(); watchStatus(); setInterval(watchStatus,30000);
   refresh(); setInterval(refresh,60000);
   </script>
 </body>
