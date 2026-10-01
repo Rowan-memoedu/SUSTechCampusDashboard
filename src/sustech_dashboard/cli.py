@@ -1,76 +1,79 @@
-"""Local dashboard commands; booking writes require an explicit web watch."""
-
-from __future__ import annotations
-
+"""Commands for the same per-owner runtime on a PC or personal server."""
 import argparse
 import getpass
 import json
 import os
 import sys
-import subprocess
-from pathlib import Path
-
-from .core import DATA_ROOT
-from .dpapi_store import CREDENTIALS_PATH, load_credentials, save_credentials
+import webbrowser
 
 
-def _init_environment() -> None:
-    # Never let the upstream library silently read a plaintext home credential file.
-    os.environ["SUSTECH_CREDENTIALS"] = str(DATA_ROOT / "no-plaintext-credentials.txt")
-    if CREDENTIALS_PATH.exists():
-        from sustech_survival.sso import cred_set
-
-        sid, password = load_credentials()
-        cred_set(sid=sid, pwd=password)
-
-
-def _configure() -> None:
-    """Interactive only; never accept a password on the command line."""
-    if not sys.stdin.isatty():
-        raise RuntimeError("请在本机交互终端运行 configure")
-    if CREDENTIALS_PATH.exists():
-        raise FileExistsError("本机凭据已存在；不会覆盖")
-    sid = input("南科大学号：").strip()
-    password = getpass.getpass("CAS 密码（输入不显示）：")
-    if not sid or not password or "\n" in sid + password or ":" in sid:
-        raise ValueError("学号或密码格式无效")
-    save_credentials(sid, password)
-    print(f"凭据已加密保存到 {CREDENTIALS_PATH}；未连接校园系统。")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(prog="sustech-dashboard", description="南科大云端面板与本机附件下载")
+def main():
+    parser = argparse.ArgumentParser(prog="sustech-dashboard", description="南科大个人校园客户端")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("configure", help="在本机隐藏输入校园凭据")
-    sub.add_parser("sync", help="通过云端清单下载新附件；保留原有基线")
-    sub.add_parser("serve", help="在 Chrome 打开云端校园面板")
-    sub.add_parser("bookings", help="查询图书馆空闲数、场地和本人预约")
-    sub.add_parser("status", help="输出上次同步状态")
+    for name in ("start", "serve"):
+        p = sub.add_parser(name, help="启动本机客户端")
+        p.add_argument("--no-browser", action="store_true")
+        p.add_argument("--port", type=int, default=18765)
+    sub.add_parser("configure", help="在本机交互终端配置账号")
+    sub.add_parser("status", help="输出此实例最近同步状态")
+    sub.add_parser("bookings", help="输出此实例最近预约查询结果")
+    sub.add_parser("download-agent", help="启动连接自己服务器的附件代理")
+    sub.add_parser("open-server", help="打开已配对的个人服务器")
+    sub.add_parser("sync", help="同步此实例；配对模式下载服务器资料")
+    sub.add_parser("check-update", help="检查签名版本信息")
     args = parser.parse_args()
     try:
+        from .paths import DATA_ROOT, prepare_private_directory
+        from .core import load_json
+        if args.command in {"start", "serve"}:
+            from .runtime import supervise
+            raise SystemExit(supervise(args.port, not args.no_browser))
         if args.command == "configure":
-            _configure()
-        elif args.command == "serve":
-            url = "https://124.221.144.155/campus/"
-            chrome = Path(os.environ["LOCALAPPDATA"]) / "Google/Chrome/Application/chrome.exe"
-            subprocess.Popen([str(chrome), url])
-            print(f"云端校园面板：{url}")
+            if not sys.stdin.isatty():
+                raise RuntimeError("请在本机交互终端运行 configure")
+            prepare_private_directory()
+            from .authentication import configure_credentials
+            sid = input("南科大学号：").strip()
+            password = getpass.getpass("CAS 密码（输入不显示）：")
+            configure_credentials(sid, password, os.name == "nt")
+            print("Windows 凭据已加密保存。" if os.name == "nt" else "账号验证成功；持久登录请配置 systemd 加密凭据。")
+        elif args.command == "download-agent":
+            from .download_agent import main as agent
+            agent()
+        elif args.command == "open-server":
+            from .download_agent import CONFIG
+            config = json.loads(CONFIG.read_text(encoding="utf-8"))
+            webbrowser.open(config["url"])
         elif args.command in {"status", "bookings"}:
-            from .download_agent import cloud_status
-            result = cloud_status()
+            result = load_json(DATA_ROOT / "snapshot.json", {})
+            if not result and (DATA_ROOT / "cloud-access.dpapi.json").exists():
+                from .download_agent import cloud_status
+                result = cloud_status()
             if args.command == "bookings":
                 result = {"updated_at": result.get("source_updated_at", {}).get("bookings"),
                           "bookings": result.get("bookings"), "errors": result.get("errors")}
             print(json.dumps(result, ensure_ascii=False, indent=2))
         elif args.command == "sync":
-            from .download_agent import sync_once
-            result = sync_once()
-            if result["mode"] == "error" or result.get("failed"):
+            if (DATA_ROOT / "cloud-access.dpapi.json").exists() and not (DATA_ROOT / "snapshot.json").exists():
+                from .download_agent import sync_once
+                result = sync_once()
+            else:
+                from .authentication import load_owner_credentials
+                from .locking import exclusive_file
+                with exclusive_file(DATA_ROOT / "backend.lock"):
+                    if not load_owner_credentials():
+                        raise RuntimeError("尚未配置账号")
+                    from .app import sync_all
+                    result = sync_all()
+            if result.get("errors") or result.get("mode") == "error" or result.get("failed"):
                 raise SystemExit(1)
+        elif args.command == "check-update":
+            from .updates import UpdateManager
+            print(json.dumps(UpdateManager().check(), ensure_ascii=False))
     except KeyboardInterrupt:
         print("已停止。")
     except Exception as exc:
-        print(f"命令失败：{type(exc).__name__}，请检查云端连接及面板登录配置。", file=sys.stderr)
+        print(f"命令失败：{type(exc).__name__}。请检查本实例配置及连接。", file=sys.stderr)
         raise SystemExit(1) from None
 
 

@@ -16,8 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .core import CHINA_TZ, DASHBOARD_PORT, DATA_ROOT, DOWNLOAD_ROOT, attachment_key, load_json, save_json, sync_attachments, parse_dt, safe_name
 from .provider import Blackboard, read_bookings, read_tis
-from .room_monitor import schedule, validate_target
-from . import monitor_remote
+from .room_monitor import schedule
 
 
 SNAPSHOT_PATH = DATA_ROOT / "snapshot.json"
@@ -135,13 +134,10 @@ def sync_all() -> dict[str, Any]:
         # Publish academic data before the more expensive attachment scan.
         save_json(SNAPSHOT_PATH, snapshot)
         try:
-            if CLOUD:
-                manifest = scan_materials()
-                snapshot["downloads"] = load_json(DATA_ROOT / "download-status.json", {"mode": "agent"})
-                snapshot["warnings"].extend(manifest.get("warnings", []))
-            else:
-                with _bb_lock:
-                    snapshot["downloads"] = sync_attachments(Blackboard(), DOWNLOAD_ROOT, BASELINE_PATH)
+            manifest = scan_materials()
+            status_path = "download-status.json" if CLOUD else "download-agent.json"
+            snapshot["downloads"] = load_json(DATA_ROOT / status_path, {"mode": "agent"})
+            snapshot["warnings"].extend(manifest.get("warnings", []))
             snapshot["source_updated_at"]["attachments"] = datetime.now(CHINA_TZ).isoformat()
         except Exception as exc:
             snapshot["errors"]["attachments"] = _public_error(exc)
@@ -151,7 +147,7 @@ def sync_all() -> dict[str, Any]:
         _sync_lock.release()
 
 
-def create_app() -> Flask:
+def create_app(runtime=None) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config['MAX_CONTENT_LENGTH'] = 256 * 1024 * 1024
     app.json.ensure_ascii = False
@@ -162,8 +158,6 @@ def create_app() -> Flask:
 
     def materials():
         nonlocal material_store
-        if not CLOUD:
-            abort(404)
         if material_store is None:
             from .materials_store import MaterialsStore
             material_store = MaterialsStore(MATERIALS_DB)
@@ -187,7 +181,8 @@ def create_app() -> Flask:
     @app.get("/")
     def index():
         local_request()
-        return render_template("index.html", csrf_token=csrf, api_base=request.script_root)
+        return render_template("index.html", csrf_token=csrf, api_base=request.script_root,
+                               download_root=str(DOWNLOAD_ROOT) if not CLOUD else "已配对电脑的下载目录")
 
     @app.get('/venues/<system>/<category>')
     def venue_page(system,category):
@@ -359,8 +354,6 @@ def create_app() -> Flask:
     @app.get("/api/attachments")
     def attachment_manifest():
         local_request()
-        if not CLOUD:
-            abort(404)
         manifest = load_json(MANIFEST_PATH, {})
         if not manifest:
             return jsonify({"error": "附件扫描尚未完成"}), 503
@@ -372,8 +365,6 @@ def create_app() -> Flask:
     @app.get("/api/attachment")
     def attachment_download():
         local_request()
-        if not CLOUD:
-            abort(404)
         key = request.args.get("key", "")
         item = next((i for i in load_json(MANIFEST_PATH, {}).get("items", [])
                      if attachment_key(i["course_id"], i["content_id"], i["id"]) == key), None)
@@ -418,6 +409,7 @@ def create_app() -> Flask:
         manifest = load_json(MANIFEST_PATH, {})
         result = materials().view(manifest)
         result["scan"] = dict(_scan_state)
+        result["destination"] = str(DOWNLOAD_ROOT) if not CLOUD else "已配对电脑的下载目录"
         return jsonify(result)
 
     @app.post("/api/materials/refresh")
@@ -492,6 +484,7 @@ def create_app() -> Flask:
         if not isinstance(payload, dict) or payload.get("mode") not in {"baseline", "incremental", "error"}:
             abort(400)
         save_json(DATA_ROOT / "download-status.json", payload)
+        return jsonify({"ok": True})
 
     @app.get("/api/discussion-rooms")
     def discussion_rooms():
@@ -517,6 +510,9 @@ def create_app() -> Flask:
 
     from .services_routes import register_services
     register_services(app, local_request, csrf, _public_error)
+    if runtime is not None:
+        from .instance_routes import register_instance
+        register_instance(app, runtime, local_request, csrf)
     return app
 
 
@@ -530,12 +526,5 @@ def _sync_loop(stop: threading.Event) -> None:
 
 
 def serve(port: int = DASHBOARD_PORT) -> None:
-    stop = threading.Event()
-    worker = threading.Thread(target=_sync_loop, args=(stop,), daemon=True, name="campus-sync")
-    worker.start()
-    try:
-        print(f"本地页面：http://127.0.0.1:{port}")
-        print("启动后立即同步，运行中每 30 分钟同步；按 Ctrl+C 停止。")
-        create_app().run(host="127.0.0.1", port=port, use_reloader=False, threaded=True)
-    finally:
-        stop.set()
+    from .runtime import backend
+    backend(port=port)

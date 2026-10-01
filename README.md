@@ -1,6 +1,8 @@
 # 南科大校园面板
 
-基于固定版本的 [sustech_survival](https://github.com/dumixthestpd/sustech_survival)。私人入口为 **https://124.221.144.155/campus/**。服务在腾讯云持续运行，本机只运行附件下载代理。
+基于固定版本的 [sustech_survival](https://github.com/dumixthestpd/sustech_survival)。支持 Windows 本机客户端和用户自己的 Linux 常开服务器，两种模式共用同一套功能。每个实例独立保存一个用户的凭据和校园数据，直接连接学校系统。
+
+安装与运行见 [客户端说明](CLIENT-README.md)，更新、签名与维护流程见 [UPDATING.md](UPDATING.md)。现有拥有者实例仍使用个人服务器和配对电脑下载，不改变原有数据归属。
 
 ## 每日概览与课表
 
@@ -52,9 +54,9 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' status
 pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' bookings
 ```
 
-Windows 登录任务 `SUSTechCampusDashboard` 启动下载代理。本机数据位于 `D:\AppData\SUSTechCampusDashboard`，依赖环境在 `D:\Caches\SUSTechCampusDashboard-venv`，源码在本仓库。凭据使用 Windows DPAPI，仅在当前用户进程内解密。
+Windows 的 `start` / `serve` 命令启动本机客户端，`open-server` 打开已配对服务器。现有 Windows 登录任务 `SUSTechCampusDashboard` 继续启动个人服务器的下载代理。本机数据位于 `D:\AppData\SUSTechCampusDashboard`，依赖环境在 `D:\Caches\SUSTechCampusDashboard-venv`。凭据使用 Windows DPAPI，仅在当前用户进程内解密。
 
-云端安装目录 `/opt/sustech-room-monitor`、账户 `sustechmon`、数据 `/var/lib/sustech-room-monitor/dashboard`；目录名沿用原部署。`sustech-campus-dashboard.service` 经 nginx 私人 HTTPS 路由及独立密码保护，CAS 使用 systemd 加密凭据。附件经转发，不在服务器长期保存。撤销云端账号授权应停用 dashboard 服务；监控服务已停用。
+现有服务器运行可分发客户端 `/opt/sustech-campus-client/campus-client`，账户 `sustechmon`、数据 `/var/lib/sustech-room-monitor/dashboard`；数据目录沿用原部署。`sustech-campus-dashboard.service` 经 nginx 私人 HTTPS 路由及独立密码保护，CAS 使用 systemd 加密凭据。附件经转发，不在服务器长期保存。旧 Python 环境保留供部署恢复；监控服务维持停用。
 
 运行快照、凭据、基线、下载资料、数据库及日志均不进入 Git。上游固定提交 `acd20323af6d3bc91c3e89974283d39d85109678`。
 

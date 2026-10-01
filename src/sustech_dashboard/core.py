@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any
 
 
-DATA_ROOT = Path(os.environ.get("SUSTECH_DASHBOARD_DATA_ROOT", r"D:\AppData\SUSTechCampusDashboard"))
-DOWNLOAD_ROOT = Path(os.environ.get("SUSTECH_DOWNLOAD_ROOT", r"D:\download"))
+from .paths import DATA_ROOT, download_root
+
+DOWNLOAD_ROOT = download_root()
 DASHBOARD_PORT = 18765  # 8765 belongs to AnkiConnect.
 CHINA_TZ = timezone(__import__("datetime").timedelta(hours=8))
 

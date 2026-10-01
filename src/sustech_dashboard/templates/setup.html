@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block header %}<h1>登录这台设备</h1>{% endblock %}
+{% block content %}<section class="wide"><h2>校园账号</h2>
+{% if configured %}<p>本实例已有账号。<a href="{{ api_base }}/">进入校园面板</a></p>
+{% elif cloud %}<p>这是个人服务器实例。请由服务器所有者在服务器本机配置 systemd 加密凭据，再启动服务。</p>
+{% else %}<p>账号仅由这台设备直接登录学校 CAS。课程、作业、预约和下载记录保存在这台设备；版本服务器只提供更新文件。</p>
+{% if credential_error %}<p class="notice">本机保存的凭据无法读取。请在原 Windows 用户下启动；更换账户时使用新的实例目录。</p>{% endif %}
+<form id="owner-login"><label>学号<input name="sid" autocomplete="username" required maxlength="128"></label><label>CAS 密码<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
+<label><input name="remember" type="checkbox" {% if can_remember %}checked{% else %}disabled{% endif %}>在当前 Windows 用户下加密保存，供下次自动登录</label>
+<button type="submit">登录并开始同步</button><p id="login-message" role="status"></p></form>{% endif %}</section>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='instance.js') }}"></script>{% endblock %}

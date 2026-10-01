@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block header %}<h1>本机与更新</h1><p><a href="{{ api_base }}/">返回校园面板</a></p>{% endblock %}
+{% block content %}<section class="wide"><h2>当前实例</h2><div id="instance-info">正在读取…</div><p>每个实例只服务一个账号。CAS 凭据、登录会话和校园数据保存在运行此实例的设备；请将安装包分发给他人，由对方在自己的设备上登录。</p></section>
+<section class="wide"><h2>版本更新</h2><p>启动后及运行期间每天自动检查。安装前校验签名，等待正在进行的提交和下载完成，再重启服务；启动失败自动恢复上一版本。账号、下载基线、已下载文件和操作记录保留。</p>
+<p id="update-state" role="status">正在读取…</p><button id="update-check" class="secondary" type="button">检查更新</button> <button id="update-install" type="button" disabled>安装更新并重启服务</button>
+<p class="muted">更新代码仍由发布者维护。签名可防止第三方篡改，不能替代对发布者及代码的信任。安装不会向版本服务器上传账号或校园数据。</p></section>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='instance.js') }}"></script>{% endblock %}

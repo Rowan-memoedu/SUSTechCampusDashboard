@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import uuid
+from urllib.parse import urlparse
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -20,8 +21,10 @@ CONFIG = DATA_ROOT / "cloud-access.dpapi.json"
 def cloud_session():
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
     url = config["url"]
-    if url != "https://124.221.144.155/campus":
-        raise ValueError("云端地址无效")
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("个人服务器必须使用 HTTPS 地址")
+    url = url.rstrip("/")
     session = requests.Session()
     session.auth = (config["username"], unprotect_password(config["password_dpapi"]))
     session.mount(url, HTTPAdapter(max_retries=Retry(
@@ -70,22 +73,12 @@ class DownloadBusy(Exception):
 
 @contextmanager
 def download_lock():
-    import msvcrt
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    with (DATA_ROOT / "download-agent.lock").open("a+b") as handle:
-        if handle.tell() == 0:
-            handle.write(b"0")
-            handle.flush()
-        handle.seek(0)
-        try:
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError:
-            raise DownloadBusy from None
-        try:
+    from .locking import exclusive_file, InstanceBusy
+    try:
+        with exclusive_file(DATA_ROOT / "download-agent.lock"):
             yield
-        finally:
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    except InstanceBusy:
+        raise DownloadBusy from None
 
 
 def sync_once():
@@ -118,19 +111,32 @@ def _sync_once():
 
 
 def main():
+    url, session = cloud_session()
+    def poll(payload):
+        response = session.post(url + "/api/materials/agent", json=payload,
+                    headers={"X-Campus-Agent": "1"}, timeout=(10, 30))
+        response.raise_for_status()
+        return response.json()
+    run_agent(CloudFiles, poll, threading.Event())
+
+
+def run_agent(provider_factory, poll, stop):
+    """Same baseline, queue and receipt protocol for direct and paired clients."""
     from .materials_local import LocalMaterials
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
     identity = DATA_ROOT / "download-agent-id.txt"
     if not identity.exists():
         identity.write_text(uuid.uuid4().hex, encoding="ascii")
     agent_id = identity.read_text(encoding="ascii").strip()
     with download_lock():
-        url, session = cloud_session()
         registry = LocalMaterials(DOWNLOAD_ROOT, DATA_ROOT / "downloaded-files.json")
         baseline = DATA_ROOT / "attachments.json"
         # A malformed existing baseline must never become an empty/new baseline.
         state = json.loads(baseline.read_text(encoding="utf-8")) if baseline.exists() else {"baseline_at": None, "seen": []}
         if not state.get("baseline_at"):
-            manifest = CloudFiles().manifest
+            manifest = provider_factory().manifest
+            if not manifest.get("updated_at"):
+                raise RuntimeError("等待首次完整附件清单")
             state = {"baseline_at": datetime.now(CHINA_TZ).isoformat(), "seen": sorted(
                 attachment_key(i["course_id"], i["content_id"], i["id"]) for i in manifest["items"])}
             save_json(baseline, state)
@@ -143,7 +149,7 @@ def main():
 
         def download_job(job):
             try:
-                provider = CloudFiles()
+                provider = provider_factory()
                 items = {attachment_key(i["course_id"], i["content_id"], i["id"]): i for i in provider.manifest["items"]}
                 for key in job["keys"]:
                     with guard:
@@ -172,10 +178,10 @@ def main():
                     progress["finished"] = True
                     progress["current_file"] = ""
 
-        while True:
+        while not stop.is_set() or (worker is not None and worker.is_alive()) or progress["id"]:
             with guard:
                 active = progress["id"]
-                payload = {"agent_id": agent_id, "claim": active is None, "active_job": active,
+                payload = {"agent_id": agent_id, "claim": active is None and not stop.is_set(), "active_job": active,
                            "state": "downloading" if active else "idle", "current_file": progress["current_file"]}
                 if not initialized:
                     payload["seen_keys"] = state["seen"]
@@ -184,10 +190,7 @@ def main():
                 if active:
                     payload["job_update"] = {"id": active, "results": list(progress["results"]), "finished": progress["finished"]}
             try:
-                response = session.post(url + "/api/materials/agent", json=payload,
-                            headers={"X-Campus-Agent": "1"}, timeout=(10, 30))
-                response.raise_for_status()
-                data = response.json()
+                data = poll(payload)
                 initialized = True
                 pending_inventory = pending_inventory[200:]
                 with guard:
@@ -207,7 +210,30 @@ def main():
             except Exception as exc:
                 save_json(DATA_ROOT / "download-agent-health.json", {"at": datetime.now(CHINA_TZ).isoformat(),
                           "connected": False, "error": type(exc).__name__})
-            time.sleep(5)
+            time.sleep(5) if stop.is_set() else stop.wait(5)
+
+
+def local_agent(stop):
+    from . import app
+    from .materials_store import MaterialsStore
+    store = MaterialsStore(app.MATERIALS_DB)
+    class DirectFiles:
+        def __init__(self):
+            self.manifest = load_json(app.MANIFEST_PATH, {})
+            if not self.manifest.get("updated_at") or app._scan_state["error"]:
+                raise RuntimeError("等待完整附件清单")
+        def download_attachment(self, course_id, content_id, attachment_id, target):
+            with app._bb_lock:
+                app.Blackboard().download_attachment(course_id, content_id, attachment_id, target)
+    def poll(payload):
+        return store.agent_poll(payload, load_json(app.MANIFEST_PATH, {}))
+    while not stop.is_set():
+        try:
+            run_agent(DirectFiles, poll, stop)
+        except Exception as exc:
+            save_json(DATA_ROOT / "download-agent-health.json", {"at": datetime.now(CHINA_TZ).isoformat(),
+                "connected": False, "error": type(exc).__name__})
+        stop.wait(15)
 
 
 if __name__ == "__main__":

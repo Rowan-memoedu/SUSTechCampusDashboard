@@ -12,7 +12,7 @@
   }
   async function requestDownload(payload,button){
     button.disabled=true;message('');
-    try {await post('/api/materials/jobs',payload);message(data?.agent?.online?'下载请求已提交，正在等待本机保存；请查看下方进度。':'下载请求已保留。本机下载代理离线，登录这台 Windows 电脑后会继续。');await refresh();}
+    try {await post('/api/materials/jobs',payload);message(data?.agent?.online?'下载请求已提交，正在等待保存；请查看下方进度。':'下载请求已保留。下载客户端恢复运行后会继续。');await refresh();}
     catch(e){message(e.message);}finally{button.disabled=false;}
   }
   function render(){
@@ -56,7 +56,7 @@
       items.forEach(i=>{
         const entry=node('div','','material-file'), main=node('div','','material-file-main');
         main.append(node('div',i.file_name,'material-file-title'),node('div',`${[...(i.folders||[]),i.title].filter(Boolean).join(' / ')||'课程资料'} · ${size(i.size)}`,'material-file-sub'));
-        if(i.local_path)main.append(node('div',`D:\\download\\${i.local_path}`,'material-file-sub'));
+        if(i.local_path)main.append(node('div',`${data.destination} / ${i.local_path}`,'material-file-sub'));
         if(i.error)main.append(node('div',i.error,'material-file-sub'));
         const actions=node('div','','material-file-actions');actions.append(node('span',stateText[i.local_status]||i.local_status,`pill ${i.local_status==='failed'?'overdue':saved(i.local_status)?'':'unknown'}`));
         const download=node('button',saved(i.local_status)?'核验并下载':i.local_status==='failed'?'重试下载':'下载');

@@ -44,11 +44,39 @@ finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 
 
 def protect_password(password: str) -> str:
-    return _pwsh(_ENCRYPT, password)
+    return _crypt(password.encode("utf-16-le"), protect=True).hex()
 
 
 def unprotect_password(encrypted: str) -> str:
-    return _pwsh(_DECRYPT, encrypted)
+    return _crypt(bytes.fromhex(encrypted), protect=False).decode("utf-16-le")
+
+
+def _crypt(data: bytes, *, protect: bool) -> bytes:
+    """Windows DPAPI, compatible with existing PowerShell SecureString files."""
+    if os.name != "nt":
+        raise RuntimeError("DPAPI 凭据只能在原 Windows 用户下使用")
+    import ctypes
+    from ctypes import wintypes
+    class Blob(ctypes.Structure):
+        _fields_ = [("size", wintypes.DWORD), ("data", ctypes.POINTER(ctypes.c_ubyte))]
+    buffer = ctypes.create_string_buffer(data)
+    source = Blob(len(data), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
+    target = Blob()
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
+    fn.argtypes = [ctypes.POINTER(Blob), ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                   ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(Blob)]
+    fn.restype = wintypes.BOOL
+    if not fn(ctypes.byref(source), None, None, None, None, 1, ctypes.byref(target)):
+        raise RuntimeError("当前 Windows 用户无法读取该加密凭据")
+    try:
+        return ctypes.string_at(target.data, target.size)
+    finally:
+        ctypes.memset(target.data, 0, target.size)
+        kernel32.LocalFree(target.data)
 
 
 def _restrict_directory(path: Path) -> None:

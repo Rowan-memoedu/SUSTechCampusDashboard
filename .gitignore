@@ -16,3 +16,10 @@ credentials.txt
 *.db
 *.sqlite*
 *.jsonl
+*.dpapi.json
+*.pem
+*.key
+browser-token
+snapshot.json
+downloaded-files.json
+updates/

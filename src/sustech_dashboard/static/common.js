@@ -15,3 +15,4 @@ function button(text,handler,cls=''){const e=node('button',text,cls);e.type='but
 function link(text,url,cls=''){const e=node('a',text,cls);e.href=url;return e;}
 function notice(el,text,success=false){el.replaceChildren();if(text)el.append(node('div',text,`notice${success?' success':''}`));}
 function rawDetails(title,data){const d=node('details','','fold'),s=node('summary',title),p=node('pre',typeof data==='string'?data:JSON.stringify(data,null,2),'raw-info fold-body');d.append(s,p);return d;}
+if(location.hash.startsWith('#access='))history.replaceState(null,'',location.pathname+location.search);
