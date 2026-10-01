@@ -1,6 +1,6 @@
 # 南科大校园面板
 
-基于 [`sustech_survival`](https://github.com/dumixthestpd/sustech_survival) 的校园工具。一个本机网页显示每日概览、Blackboard 课程与作业状态及剩余时间、TIS 考试和待评教、图书馆空闲数与本人预约、E-Hall 可用场地与本人预约，并提供讨论间具体预约安排和后台预约监控。命令行也可以单独查询预约。
+基于 [`sustech_survival`](https://github.com/dumixthestpd/sustech_survival) 的校园工具。腾讯服务器上的私人网页显示每日概览、Blackboard 课程与作业状态及剩余时间、TIS 考试和待评教、图书馆空闲数与本人预约、E-Hall 可用场地与本人预约，并提供讨论间具体预约安排和后台预约监控。命令行也可以单独查询预约。
 
 Blackboard 课程仅保留 2026 年 9 月 1 日及以后选课、且属于当前学期的课程。作业仅显示截止日期不早于该日且当前可访问的条目；没有截止日期的条目，须能确认内容创建于该日及以后。旧成绩簿任务不计入未提交数量。
 
@@ -12,7 +12,9 @@ Windows PowerShell 7：
 pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' serve
 ```
 
-在本机打开 `http://127.0.0.1:8765/`。启动时立即同步，命令运行期间每 30 分钟同步一次；关闭命令后停止，下次启动会补查期间新增的附件。页面每分钟更新显示，并以同步时间标明数据新旧。只监听 `127.0.0.1`。
+打开 `https://124.221.144.155/campus/`，独立的面板登录信息保存在本机受限目录 `D:\AppData\SUSTechCampusDashboard\校园面板登录.txt`。Chrome 的登录框使用该面板用户名和密码。服务器启动时立即同步，运行中每 30 分钟同步一次；页面每分钟更新显示，并分别标明各来源最近成功查询的时间。失败时保留上次成功数据并显示错误。
+
+公网通过现有 HTTPS 443 端口访问，服务器应用仅监听服务器内部的 `127.0.0.1:18771`。本机无需开网页端口。Windows 登录任务 `SUSTechCampusDashboard` 只启动附件下载代理，经私有 HTTPS 接口拉取新附件并保存到 `D:\download`；关机期间网页和预约监控继续运行，本机下次登录后补下载基线之后的新可见附件。
 
 其他命令：
 
@@ -22,13 +24,13 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' booking
 pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' status
 ```
 
-`sync` 只读取校园系统并下载新附件；不提交作业、不预约场地、不评教。`bookings` 输出图书馆当前空闲数、未来 30 天本人图书馆预约、E-Hall 可用场地与本人预约。只有网页上明确提交讨论间监控目标后，远端服务才会在目标时段空闲时尝试预约。
+`sync` 经云端接口下载新附件；`status` 和 `bookings` 读取云端最近成功同步的数据。只有网页上明确提交讨论间监控目标后，远端服务才会在目标时段空闲时尝试预约。
 
 ## 讨论间监控
 
-页面可选择今天至后天的讨论间和 15 分钟刻度的预约时段，查看该日的已占用时间。选定后填写预约主题；3 人起的讨论间还须提供至少两位共同申请人的图书馆系统 `accNo`。本机网页通过 SSH 将监控目标交给腾讯服务器上的独立服务。服务器每 30 秒检查一次，仅当整个目标时段空闲才提交一次预约。成功、时段开始、手动停止或提交结果不确定都会终止自动尝试；结果不确定需到图书馆预约系统核查，程序不会盲目重试，也不会自动取消实际预约。
+页面可选择今天至后天的讨论间和 15 分钟刻度的预约时段，查看该日的已占用时间。选定后填写预约主题；3 人起的讨论间还须提供至少两位共同申请人的图书馆系统 `accNo`。云端网页通过受锁保护的状态文件将监控目标交给服务器上的独立服务。服务器每 30 秒检查一次，仅当整个目标时段空闲才提交一次预约。成功、时段开始、手动停止或提交结果不确定都会终止自动尝试；结果不确定需到图书馆预约系统核查，程序不会盲目重试，也不会自动取消实际预约。
 
-远端服务运行于独立 `sustechmon` 系统用户、`/opt/sustech-room-monitor` 源码与 `/var/lib/sustech-room-monitor` 状态目录，不开公网端口，也不修改现有网站。CAS 凭据副本使用 systemd 主机密钥加密，由服务运行时通过 `LoadCredentialEncrypted` 装载。可停用 `sustech-room-monitor.service` 并删除加密凭据来撤销服务器端自动登录授权；停用服务不取消既有预约。
+远端服务运行于独立 `sustechmon` 系统用户、`/opt/sustech-room-monitor` 安装目录与 `/var/lib/sustech-room-monitor` 状态目录。网页通过现有 nginx HTTPS 的 `/campus/` 路由和独立密码保护；其他网站路由保持原状。CAS 凭据副本使用 systemd 主机密钥加密，由服务运行时通过 `LoadCredentialEncrypted` 装载。撤销云端校园登录授权时须同时停用 `sustech-campus-dashboard.service` 和 `sustech-room-monitor.service`；停用服务不取消既有预约。
 
 ## 附件起点
 
@@ -50,6 +52,7 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' configu
 
 - 源码：`D:\Projects\SUSTechCampusDashboard`；依赖环境：`D:\Caches\SUSTechCampusDashboard-venv`。
 - 本机状态：`D:\AppData\SUSTechCampusDashboard`；课程附件：`D:\download`。
+- 云端快照与附件清单：`/var/lib/sustech-room-monitor/dashboard`；附件内容通过 HTTPS 转发，不在服务器长期保存。原有本机 58 项附件基线保持不变。
 - 上游依赖固定在提交 `acd20323af6d3bc91c3e89974283d39d85109678`，避免更新静默改变接口行为。
 - 离线测试：`D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe -m pytest -q D:\Projects\SUSTechCampusDashboard\tests`。
 

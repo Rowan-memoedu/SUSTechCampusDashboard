@@ -7,8 +7,10 @@ import getpass
 import json
 import os
 import sys
+import subprocess
+from pathlib import Path
 
-from .core import DATA_ROOT, load_json
+from .core import DATA_ROOT
 from .dpapi_store import CREDENTIALS_PATH, load_credentials, save_credentials
 
 
@@ -37,38 +39,38 @@ def _configure() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="sustech-dashboard", description="南科大本地信息面板")
+    parser = argparse.ArgumentParser(prog="sustech-dashboard", description="南科大云端面板与本机附件下载")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("configure", help="在本机隐藏输入校园凭据")
-    sub.add_parser("sync", help="同步页面数据和新附件；首次成功扫描只建立基线")
-    serve_parser = sub.add_parser("serve", help="启动本机网页并定期同步")
-    serve_parser.add_argument("--port", type=int, default=8765)
+    sub.add_parser("sync", help="通过云端清单下载新附件；保留原有基线")
+    sub.add_parser("serve", help="在 Chrome 打开云端校园面板")
     sub.add_parser("bookings", help="查询图书馆空闲数、场地和本人预约")
     sub.add_parser("status", help="输出上次同步状态")
     args = parser.parse_args()
     try:
         if args.command == "configure":
             _configure()
-        elif args.command == "status":
-            print(json.dumps(load_json(DATA_ROOT / "snapshot.json", {"message": "尚未同步"}), ensure_ascii=False, indent=2))
-        else:
-            _init_environment()
-            if args.command == "sync":
-                from .app import sync_all
-
-                print(json.dumps(sync_all(), ensure_ascii=False, indent=2, default=str))
-            elif args.command == "serve":
-                from .app import serve
-
-                serve(args.port)
-            elif args.command == "bookings":
-                from .provider import read_bookings
-
-                print(json.dumps(read_bookings(), ensure_ascii=False, indent=2))
+        elif args.command == "serve":
+            url = "https://124.221.144.155/campus/"
+            chrome = Path(os.environ["LOCALAPPDATA"]) / "Google/Chrome/Application/chrome.exe"
+            subprocess.Popen([str(chrome), url])
+            print(f"云端校园面板：{url}")
+        elif args.command in {"status", "bookings"}:
+            from .download_agent import cloud_status
+            result = cloud_status()
+            if args.command == "bookings":
+                result = {"updated_at": result.get("source_updated_at", {}).get("bookings"),
+                          "bookings": result.get("bookings"), "errors": result.get("errors")}
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif args.command == "sync":
+            from .download_agent import sync_once
+            result = sync_once()
+            if result["mode"] == "error" or result.get("failed"):
+                raise SystemExit(1)
     except KeyboardInterrupt:
         print("已停止。")
     except Exception as exc:
-        print(f"错误：{exc}", file=sys.stderr)
+        print(f"命令失败：{type(exc).__name__}，请检查云端连接及面板登录配置。", file=sys.stderr)
         raise SystemExit(1) from None
 
 

@@ -1,0 +1,27 @@
+[Unit]
+Description=Private SUSTech campus dashboard and campus synchronization
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=sustechmon
+Group=sustechmon
+WorkingDirectory=/var/lib/sustech-room-monitor
+Environment=HOME=/var/lib/sustech-room-monitor
+Environment=SUSTECH_CLOUD=1
+Environment=SUSTECH_PUBLIC_HOST=124.221.144.155
+Environment=SUSTECH_DASHBOARD_DATA_ROOT=/var/lib/sustech-room-monitor/dashboard
+Environment=SUSTECH_MONITOR_STATE=/var/lib/sustech-room-monitor/watch.json
+LoadCredentialEncrypted=sustech-cas:/etc/credstore.encrypted/sustech-cas
+ExecStart=/opt/sustech-room-monitor/venv/bin/python -m sustech_dashboard.cloud
+Restart=always
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sustech-room-monitor
+
+[Install]
+WantedBy=multi-user.target

@@ -43,7 +43,7 @@
   </style>
 </head>
 <body>
-  <header><h1>南科大校园面板</h1><p id="updated">正在读取本机数据…</p></header>
+  <header><h1>南科大校园面板</h1><p id="updated">正在读取校园数据…</p></header>
   <main>
     <section class="wide" id="problems" hidden><h2>同步状态</h2><div id="problem-list"></div></section>
     <section class="wide"><h2>今日概览</h2><div class="grid" id="metrics"></div><div id="classes"></div></section>
@@ -74,6 +74,8 @@
   </main>
   <script>
   const roomCsrf={{ csrf_token|tojson }};
+  const apiBase={{ api_base|tojson }};
+  const campusFetch=(path,options)=>fetch(apiBase+path,options);
   const $ = id => document.getElementById(id);
   function clear(id) { const el=$(id); el.replaceChildren(); return el; }
   function node(tag, text, cls) { const el=document.createElement(tag); el.textContent=String(text ?? ''); if(cls) el.className=cls; return el; }
@@ -94,6 +96,8 @@
   function metric(el,value,label) { const box=node('div','','metric'); box.append(node('strong',value),node('span',label)); el.append(box); }
   function render(data) {
     $('updated').textContent=data.updated_at ? `最近同步：${new Date(data.updated_at).toLocaleString('zh-CN')} · 页面每分钟更新倒计时` : '尚未完成首次同步';
+    const sources=Object.entries(data.source_updated_at||{}).map(([k,v])=>`${k} 成功同步：${new Date(v).toLocaleString('zh-CN')}`).join(' · ');
+    if(sources) $('updated').textContent+=' · '+sources;
     const issues=[...Object.entries(data.errors||{}).map(([k,v])=>`${k}：${v}`),...(data.warnings||[])];
     $('problems').hidden=!issues.length; const problem=clear('problem-list'); issues.forEach(v=>problem.append(node('div',v,'notice')));
     const tis=data.tis||{}, assignments=data.assignments||[], pending=assignments.filter(a=>a.status==='not_submitted'||a.status==='draft');
@@ -120,21 +124,22 @@
     else data.blackboard_courses.forEach(c=>row(courses,c.name));
     const dl=data.downloads||{};
     $('downloads').textContent=dl.mode==='baseline' ? `首次成功扫描已记录 ${dl.seen} 个现有附件；不会下载旧资料。` :
-      dl.mode==='incremental' ? `本轮新下载 ${dl.downloaded} 个附件；${(dl.failed||[]).length} 个失败，后续会重试。目录：D:\\download` : '附件同步尚未完成。';
+      dl.mode==='incremental' ? `本轮新下载 ${dl.downloaded} 个附件；${(dl.failed||[]).length} 个失败，后续会重试。目录：D:\\download · 本机代理最近运行：${dl.updated_at?new Date(dl.updated_at).toLocaleString('zh-CN'):'—'}` :
+      dl.mode==='error' ? `本机附件下载失败：${dl.error} · 最近运行：${new Date(dl.updated_at).toLocaleString('zh-CN')}` : '等待本机下载代理；本机开机时将新资料保存到 D:\\download。';
     const booking=data.bookings||{};
     const libIdle=clear('library-idle'); if(!(booking.library_idle||[]).length) empty(libIdle); else booking.library_idle.forEach(x=>row(libIdle,x.name,`${x.idle_quantity}/${x.total_quantity} 空闲`));
     const libMine=clear('library-mine'); if(!(booking.library_mine||[]).length) empty(libMine); else booking.library_mine.forEach(x=>row(libMine,x.dev_name||x.room_name||'研讨室',`${x.begin_time||''} — ${x.end_time||''}`));
     const ehall=clear('ehall-rooms'); if(!(booking.ehall_available||[]).length) empty(ehall); else booking.ehall_available.forEach(x=>row(ehall,x.name,`${x.location||''} · ${x.room_type||''}`));
     const ehallMine=clear('ehall-mine'); if(!(booking.ehall_mine||[]).length) empty(ehallMine); else booking.ehall_mine.forEach(x=>row(ehallMine,x.room_name||x.title||'场地预约',`${x.start_at||''} — ${x.end_at||''} · ${x.status||''}`));
   }
-  async function refresh() { try { const r=await fetch('/api/status',{cache:'no-store'}); if(!r.ok) throw Error(r.status); render(await r.json()); } catch(e) { $('updated').textContent=`读取本机数据失败：${e}`; } }
+  async function refresh() { try { const r=await campusFetch('/api/status',{cache:'no-store'}); if(!r.ok) throw Error(r.status); render(await r.json()); } catch(e) { $('updated').textContent=`读取校园数据失败：${e}`; } }
   let roomList=[];
   function roomMessage(text) { $('room-message').textContent=text; $('room-message').hidden=!text; }
   function localDate(offset=0) { const d=new Date(Date.now()+8*3600000+offset*86400000); return d.toISOString().slice(0,10); }
   async function loadRooms() {
     roomMessage(''); const day=$('room-date').value; const target=clear('room-schedule');
     try {
-      const r=await fetch(`/api/discussion-rooms?date=${encodeURIComponent(day)}`,{cache:'no-store'}), data=await r.json();
+      const r=await campusFetch(`/api/discussion-rooms?date=${encodeURIComponent(day)}`,{cache:'no-store'}), data=await r.json();
       if(!r.ok) throw Error(data.error||r.status);
       roomList=data.rooms; const choice=clear('room-choice');
       roomList.forEach(room=>{const opt=node('option',`${room.location} · ${room.name}（${room.min_people}–${room.max_people}人）`);opt.value=String(room.id);choice.append(opt);});
@@ -152,7 +157,7 @@
   async function watchStatus() {
     const target=clear('room-watch');
     try {
-      const r=await fetch('/api/room-watch',{cache:'no-store'}), data=await r.json();
+      const r=await campusFetch('/api/room-watch',{cache:'no-store'}), data=await r.json();
       if(!r.ok) throw Error(data.error||r.status);
       const labels={idle:'未监控',watching:'监控中',attempting:'正在提交预约',booked:'预约成功',expired:'时段已开始，监控结束',cancelled:'已停止',needs_review:'结果需人工核查'};
       row(target,labels[data.status]||data.status,data.room_name?`${data.room_name} · ${new Date(data.begin).toLocaleString('zh-CN')}–${new Date(data.end).toLocaleTimeString('zh-CN')} · 已检查 ${data.checks||0} 次`:'');
@@ -164,7 +169,7 @@
   }
   async function sendWatch(path,payload) {
     roomMessage(''); const button=path.endsWith('stop')?$('room-stop'):$('room-submit'); button.disabled=true;
-    try {const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(payload||{})});const data=await r.json();if(!r.ok)throw Error(data.error||r.status);await watchStatus();}
+    try {const r=await campusFetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(payload||{})});const data=await r.json();if(!r.ok)throw Error(data.error||r.status);await watchStatus();}
     catch(e){roomMessage(e.message);} finally {button.disabled=false;}
   }
   $('room-date').min=localDate(); $('room-date').max=localDate(2); $('room-date').value=localDate();

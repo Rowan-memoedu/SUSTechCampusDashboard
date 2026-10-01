@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-DATA_ROOT = Path(r"D:\AppData\SUSTechCampusDashboard")
-DOWNLOAD_ROOT = Path(r"D:\download")
+DATA_ROOT = Path(os.environ.get("SUSTECH_DASHBOARD_DATA_ROOT", r"D:\AppData\SUSTechCampusDashboard"))
+DOWNLOAD_ROOT = Path(os.environ.get("SUSTECH_DOWNLOAD_ROOT", r"D:\download"))
+DASHBOARD_PORT = 18765  # 8765 belongs to AnkiConnect.
 CHINA_TZ = timezone(__import__("datetime").timedelta(hours=8))
 
 

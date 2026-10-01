@@ -68,12 +68,18 @@ class Blackboard:
         if not ok:
             raise RuntimeError(f"Blackboard 登录失败：{reason}")
         self.session = auth.session
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        self.session.mount(BB_BASE, HTTPAdapter(max_retries=Retry(
+            total=2, backoff_factor=1, allowed_methods={"GET"},
+            status_forcelist={429, 502, 503, 504},
+        )))
         self.warnings: list[str] = []
         self.unclassified: list[str] = []
         self._courses: list[dict[str, str]] | None = None
 
     def get(self, path: str, *, stream: bool = False):
-        response = self.session.get(_api_path(path), timeout=30, stream=stream)
+        response = self.session.get(_api_path(path), timeout=(10, 60), stream=stream)
         response.raise_for_status()
         return response
 
@@ -209,8 +215,7 @@ class Blackboard:
             try:
                 columns = self.results(f"/learn/api/public/v1/courses/{cid}/gradebook/columns")
             except Exception as exc:
-                self.warnings.append(f"{course['name']}：作业列表读取失败 ({type(exc).__name__})")
-                continue
+                raise RuntimeError(f"作业列表读取失败 ({type(exc).__name__})") from None
             for col in columns:
                 if col.get("grading", {}).get("type") != "Attempts" or not col.get("contentId"):
                     continue
