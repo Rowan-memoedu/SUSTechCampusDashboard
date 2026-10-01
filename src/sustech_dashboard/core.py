@@ -26,7 +26,8 @@ def safe_name(value: str, fallback: str = "未命名") -> str:
 
 def unique_name(name: str, identity: str) -> str:
     stem = safe_name(Path(name).stem)
-    suffix = safe_name(Path(name).suffix, "")[:16]
+    suffix = Path(name).suffix[:16]
+    suffix = re.sub(r'[^\w.]', '_', suffix)
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
     return f"{stem}-{digest}{suffix}"
 

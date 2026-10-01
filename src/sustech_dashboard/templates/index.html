@@ -1,194 +1,21 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>南科大校园面板</title>
-  <style>
-    :root { color-scheme: light; --ink:#142b35; --muted:#607782; --line:#d9e4e7; --blue:#086c85; --bg:#f3f7f7; --card:#fff; --warn:#9c501d; --bad:#a33d3d; }
-    * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,"Microsoft YaHei",sans-serif; }
-    header { background:#103a49; color:#fff; padding:24px max(24px,calc((100vw - 1200px)/2)); }
-    header h1 { font-size:25px; margin:0 0 4px; }
-    header p { margin:0; color:#c6dde4; }
-    main { max-width:1200px; margin:24px auto 50px; padding:0 18px; display:grid; grid-template-columns:2fr 1fr; gap:18px; }
-    .wide { grid-column:1/-1; }
-    section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; box-shadow:0 2px 8px #173d4510; min-width:0; }
-    h2 { margin:0 0 13px; font-size:19px; }
-    h3 { margin:20px 0 7px; font-size:15px; }
-    .muted { color:var(--muted); }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:10px; }
-    .metric { padding:11px 13px; background:#edf5f6; border-radius:9px; }
-    .metric strong { display:block; font-size:20px; }
-    .metric span { color:var(--muted); font-size:12px; }
-    .row { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; border-top:1px solid var(--line); padding:10px 0; }
-    .row:first-child { border-top:0; }
-    .row-main { min-width:0; }
-    .row-title { font-weight:600; word-break:break-word; }
-    .row-sub { color:var(--muted); font-size:13px; }
-    .pill { display:inline-block; border-radius:100px; padding:2px 9px; white-space:nowrap; background:#e6f2ee; color:#14654e; font-size:12px; }
-    .pill.todo { background:#fff1df; color:var(--warn); }
-    .pill.draft,.pill.unknown { background:#e8edf1; color:#536b7a; }
-    .pill.overdue { background:#fbeaea; color:var(--bad); }
-    .countdown { font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
-    .notice { border-left:3px solid var(--warn); background:#fff8ed; padding:8px 12px; margin:7px 0; font-size:13px; white-space:pre-wrap; }
-    .ok { color:#14654e; }
-    .empty { color:var(--muted); padding:12px 0; }
-    .room-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
-    .room-controls label { display:grid; gap:4px; min-width:145px; }
-    .room-controls input,.room-controls select { padding:7px; border:1px solid var(--line); border-radius:6px; font:inherit; }
-    button { padding:8px 13px; border:0; border-radius:6px; background:var(--blue); color:#fff; cursor:pointer; font:inherit; }
-    button:disabled { opacity:.55; cursor:wait; }
-    @media(max-width:850px) { main { grid-template-columns:1fr; } .wide { grid-column:auto; } }
-  </style>
-</head>
-<body>
-  <header><h1>南科大校园面板</h1><p id="updated">正在读取校园数据…</p></header>
-  <main>
-    <section class="wide" id="problems" hidden><h2>同步状态</h2><div id="problem-list"></div></section>
-    <section class="wide"><h2>今日概览</h2><div class="grid" id="metrics"></div><div id="classes"></div></section>
-    <section><h2>Blackboard 作业</h2><p class="muted">仅显示 2026 年 9 月 1 日起的可见作业；“未提交”基于成功读取的提交记录，查询失败显示“未知”。页面不代替 Blackboard 的最终提交回执。</p><div id="assignments"></div></section>
-    <section><h2>考试与待评教</h2><h3>后续考试</h3><div id="exams"></div><h3>待评教</h3><div id="evals"></div></section>
-    <section><h2>课程与资料</h2><div id="courses"></div><p class="muted" id="downloads"></p></section>
-    <section><h2>场地与预约</h2><h3>图书馆当前空闲数</h3><div id="library-idle"></div><h3>我的图书馆预约</h3><div id="library-mine"></div><h3>E-Hall 可用场地</h3><div id="ehall-rooms"></div><h3>我的 E-Hall 预约</h3><div id="ehall-mine"></div></section>
-    <section class="wide"><h2>讨论间预约与监控</h2>
-      <p class="muted">选择日期和讨论间可查看已占用时段。提交监控后，腾讯服务器每 30 秒检查一次；完整时段空闲时仅尝试预约一次。开始时间到达、预约成功或结果不确定时会停止。</p>
-      <div class="room-controls">
-        <label>日期<input id="room-date" type="date"></label>
-        <label>讨论间<select id="room-choice"></select></label>
-        <button id="room-load" type="button">查看预约情况</button>
-      </div>
-      <div id="room-schedule"></div>
-      <h3>提交监控目标</h3>
-      <div class="room-controls">
-        <label>开始<input id="room-begin" type="time" step="900" value="10:00"></label>
-        <label>结束<input id="room-end" type="time" step="900" value="12:00"></label>
-        <label>预约主题<input id="room-title" type="text" maxlength="80" placeholder="如：课程讨论"></label>
-        <label style="min-width:260px">共同申请人 accNo（多人间必填，逗号分隔）<input id="room-members" type="text" placeholder="两位或以上"></label>
-        <button id="room-submit" type="button">开始后台监控</button>
-      </div>
-      <p class="muted">3 人起的讨论间至少填 2 位共同申请人的图书馆系统 accNo。提交后网页只显示监控状态，不回显共同申请人编号。</p>
-      <h3>监控状态</h3><div id="room-watch"></div><button id="room-stop" type="button" hidden>停止监控</button>
-      <div id="room-message" class="notice" hidden></div>
-    </section>
-  </main>
-  <script>
-  const roomCsrf={{ csrf_token|tojson }};
-  const apiBase={{ api_base|tojson }};
-  const campusFetch=(path,options)=>fetch(apiBase+path,options);
-  const $ = id => document.getElementById(id);
-  function clear(id) { const el=$(id); el.replaceChildren(); return el; }
-  function node(tag, text, cls) { const el=document.createElement(tag); el.textContent=String(text ?? ''); if(cls) el.className=cls; return el; }
-  function empty(el, text='暂无数据') { el.append(node('div',text,'empty')); }
-  function row(el, title, subtitle='', right='') {
-    const outer=node('div','','row'), main=node('div','','row-main');
-    main.append(node('div',title,'row-title')); if(subtitle) main.append(node('div',subtitle,'row-sub'));
-    outer.append(main); if(right) outer.append(node('div',right,'countdown')); el.append(outer); return outer;
-  }
-  function countdown(iso) {
-    if(!iso) return '未标截止时间';
-    const ms=new Date(iso).getTime()-Date.now(); if(!Number.isFinite(ms)) return '时间不明';
-    if(ms<0) return '已截止';
-    const mins=Math.ceil(ms/60000), days=Math.floor(mins/1440), hours=Math.floor((mins%1440)/60);
-    return days ? `${days} 天 ${hours} 小时` : hours ? `${hours} 小时 ${mins%60} 分` : `${mins} 分钟`;
-  }
-  const statusText={submitted:'已提交',not_submitted:'未提交',draft:'草稿未提交',unknown:'状态未知'};
-  function metric(el,value,label) { const box=node('div','','metric'); box.append(node('strong',value),node('span',label)); el.append(box); }
-  function render(data) {
-    $('updated').textContent=data.updated_at ? `最近同步：${new Date(data.updated_at).toLocaleString('zh-CN')} · 页面每分钟更新倒计时` : '尚未完成首次同步';
-    const sources=Object.entries(data.source_updated_at||{}).map(([k,v])=>`${k} 成功同步：${new Date(v).toLocaleString('zh-CN')}`).join(' · ');
-    if(sources) $('updated').textContent+=' · '+sources;
-    const issues=[...Object.entries(data.errors||{}).map(([k,v])=>`${k}：${v}`),...(data.warnings||[])];
-    $('problems').hidden=!issues.length; const problem=clear('problem-list'); issues.forEach(v=>problem.append(node('div',v,'notice')));
-    const tis=data.tis||{}, assignments=data.assignments||[], pending=assignments.filter(a=>a.status==='not_submitted'||a.status==='draft');
-    const metrics=clear('metrics');
-    metric(metrics,tis.semester||'—','当前学期'); metric(metrics,tis.week??'—','教学周');
-    metric(metrics,pending.length,'未提交或草稿作业'); metric(metrics,(tis.exams||[]).length,'后续考试');
-    const weather=data.weather||{}; if(weather.condition) metric(metrics,`${weather.temperature??'—'}°C`,weather.condition);
-    const classes=clear('classes'); classes.append(node('h3','今日课程'));
-    const cal=tis.calendar||{}, todays=tis.today_classes||[];
-    if(tis.date!==localDate()) empty(classes,'等待今日课表同步，未显示其他日期的课程');
-    else {
-      if(cal.label) classes.append(node('div',cal.label,cal.kind==='unknown'?'notice':'ok'));
-      if(cal.kind==='holiday'&&cal.start&&cal.end) classes.append(node('div',`假期：${cal.start} 至 ${cal.end}`,'muted'));
-      if(cal.kind==='makeup'&&cal.source_date) classes.append(node('div',`按 ${cal.source_date}（第 ${cal.source_week} 教学周）的课表补课`,'muted'));
-      if(!todays.length && !['holiday','break','vacation','final','unknown'].includes(cal.kind)) empty(classes,'今日没有已排课程');
-      else todays.forEach(c=>row(classes,c.KCMC||c.SKSJ||'课程',c.SKSJ||''));
-      if(cal.next_makeup) classes.append(node('div',`下次调休补课：${cal.next_makeup.date} · ${cal.next_makeup.label}`,'muted'));
-      if(cal.data_checked_at) classes.append(node('div',`校历核验：${new Date(cal.data_checked_at).toLocaleString('zh-CN')}${cal.cached_data?' · 缓存数据':''}`,'muted'));
-    }
-    const tasks=clear('assignments'); if(!assignments.length) empty(tasks,'暂无作业，或 Blackboard 尚未成功同步');
-    else assignments.forEach(a=>{
-      const outer=row(tasks,a.name,`${a.course} · ${a.due?new Date(a.due).toLocaleString('zh-CN'):'未标截止时间'}`);
-      const right=node('div','','');
-      right.append(node('div',statusText[a.status]||'状态未知',`pill ${a.status==='not_submitted'?'todo':a.status}`));
-      right.append(node('div',countdown(a.due),'countdown'));
-      outer.append(right);
-    });
-    const exams=clear('exams'); if(!(tis.exams||[]).length) empty(exams,'暂无已发布的后续考试');
-    else tis.exams.forEach(e=>row(exams,e.KCMC||'考试',`${e.KSRQ||''} ${e.KSJTSJ||''} · ${e.JXLMC||''} ${e.JXCDMC||''}`));
-    const evals=clear('evals'); if(!(tis.pending_evals||[]).length) empty(evals,'暂无待评教');
-    else tis.pending_evals.forEach(e=>row(evals,e.course,e.status));
-    const courses=clear('courses'); if(!(data.blackboard_courses||[]).length) empty(courses,'暂无当前学期课程');
-    else data.blackboard_courses.forEach(c=>row(courses,c.name));
-    const dl=data.downloads||{};
-    $('downloads').textContent=dl.mode==='baseline' ? `首次成功扫描已记录 ${dl.seen} 个现有附件；不会下载旧资料。` :
-      dl.mode==='incremental' ? `本轮新下载 ${dl.downloaded} 个附件；${(dl.failed||[]).length} 个失败，后续会重试。目录：D:\\download · 本机代理最近运行：${dl.updated_at?new Date(dl.updated_at).toLocaleString('zh-CN'):'—'}` :
-      dl.mode==='error' ? `本机附件下载失败：${dl.error} · 最近运行：${new Date(dl.updated_at).toLocaleString('zh-CN')}` : '等待本机下载代理；本机开机时将新资料保存到 D:\\download。';
-    const booking=data.bookings||{};
-    const libIdle=clear('library-idle'); if(!(booking.library_idle||[]).length) empty(libIdle); else booking.library_idle.forEach(x=>row(libIdle,x.name,`${x.idle_quantity}/${x.total_quantity} 空闲`));
-    const libMine=clear('library-mine'); if(!(booking.library_mine||[]).length) empty(libMine); else booking.library_mine.forEach(x=>row(libMine,x.dev_name||x.room_name||'研讨室',`${x.begin_time||''} — ${x.end_time||''}`));
-    const ehall=clear('ehall-rooms'); if(!(booking.ehall_available||[]).length) empty(ehall); else booking.ehall_available.forEach(x=>row(ehall,x.name,`${x.location||''} · ${x.room_type||''}`));
-    const ehallMine=clear('ehall-mine'); if(!(booking.ehall_mine||[]).length) empty(ehallMine); else booking.ehall_mine.forEach(x=>row(ehallMine,x.room_name||x.title||'场地预约',`${x.start_at||''} — ${x.end_at||''} · ${x.status||''}`));
-  }
-  async function refresh() { try { const r=await campusFetch('/api/status',{cache:'no-store'}); if(!r.ok) throw Error(r.status); render(await r.json()); } catch(e) { $('updated').textContent=`读取校园数据失败：${e}`; } }
-  let roomList=[];
-  function roomMessage(text) { $('room-message').textContent=text; $('room-message').hidden=!text; }
-  function localDate(offset=0) { const d=new Date(Date.now()+8*3600000+offset*86400000); return d.toISOString().slice(0,10); }
-  async function loadRooms() {
-    roomMessage(''); const day=$('room-date').value; const target=clear('room-schedule');
-    try {
-      const r=await campusFetch(`/api/discussion-rooms?date=${encodeURIComponent(day)}`,{cache:'no-store'}), data=await r.json();
-      if(!r.ok) throw Error(data.error||r.status);
-      roomList=data.rooms; const choice=clear('room-choice');
-      roomList.forEach(room=>{const opt=node('option',`${room.location} · ${room.name}（${room.min_people}–${room.max_people}人）`);opt.value=String(room.id);choice.append(opt);});
-      renderRoom();
-    } catch(e) { empty(target,`讨论间查询失败：${e.message}`); }
-  }
-  function renderRoom() {
-    const target=clear('room-schedule'), room=roomList.find(r=>String(r.id)===$('room-choice').value);
-    if(!room) {empty(target,'请选择讨论间');return;}
-    target.append(node('h3',`${room.name} · ${room.location}`));
-    target.append(node('div',`开放时间：${room.open.map(t=>`${t.openStartTime}–${t.openEndTime}`).join('、')||'暂无开放安排'}`,'muted'));
-    if(!room.busy.length) empty(target,'该日暂未显示已占用时段');
-    else room.busy.forEach(s=>row(target,'已占用',`${new Date(s.start).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}–${new Date(s.end).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`));
-  }
-  async function watchStatus() {
-    const target=clear('room-watch');
-    try {
-      const r=await campusFetch('/api/room-watch',{cache:'no-store'}), data=await r.json();
-      if(!r.ok) throw Error(data.error||r.status);
-      const labels={idle:'未监控',watching:'监控中',attempting:'正在提交预约',booked:'预约成功',expired:'时段已开始，监控结束',cancelled:'已停止',needs_review:'结果需人工核查'};
-      row(target,labels[data.status]||data.status,data.room_name?`${data.room_name} · ${new Date(data.begin).toLocaleString('zh-CN')}–${new Date(data.end).toLocaleTimeString('zh-CN')} · 已检查 ${data.checks||0} 次`:'');
-      if(data.error||data.last_error) target.append(node('div',data.error||data.last_error,'notice'));
-      if(data.reservation_id) target.append(node('div',`预约编号：${data.reservation_id}`,'ok'));
-      $('room-stop').hidden=!['watching','needs_review'].includes(data.status);
-      $('room-stop').textContent=data.status==='needs_review'?'已核查，解除监控':'停止监控';
-    } catch(e) { empty(target,`远程监控不可用：${e.message}`); $('room-stop').hidden=true; }
-  }
-  async function sendWatch(path,payload) {
-    roomMessage(''); const button=path.endsWith('stop')?$('room-stop'):$('room-submit'); button.disabled=true;
-    try {const r=await campusFetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(payload||{})});const data=await r.json();if(!r.ok)throw Error(data.error||r.status);await watchStatus();}
-    catch(e){roomMessage(e.message);} finally {button.disabled=false;}
-  }
-  $('room-date').min=localDate(); $('room-date').max=localDate(2); $('room-date').value=localDate();
-  $('room-load').onclick=loadRooms; $('room-choice').onchange=renderRoom;
-  $('room-submit').onclick=()=>{const room=roomList.find(r=>String(r.id)===$('room-choice').value);if(!room){roomMessage('请先选择讨论间');return;}
-    const day=$('room-date').value,members=$('room-members').value.split(/[,，\s]+/).filter(Boolean);
-    sendWatch('/api/room-watch',{room_id:room.id,begin:`${day}T${$('room-begin').value}:00+08:00`,end:`${day}T${$('room-end').value}:00+08:00`,title:$('room-title').value,members});};
-  $('room-stop').onclick=()=>sendWatch('/api/room-watch/stop');
-  loadRooms(); watchStatus(); setInterval(watchStatus,30000);
-  refresh(); setInterval(refresh,60000);
-  </script>
-</body>
-</html>
+{% extends 'base.html' %}
+{% block content %}
+<section class="wide" id="problems" hidden><h2>同步状态</h2><div id="problem-list"></div></section>
+<section class="wide"><h2>每日概览</h2><div class="grid" id="metrics"></div><div id="classes"></div>
+<details class="fold" id="week-fold"><summary><div class="row-main"><strong>本周课表</strong><div class="row-sub" id="week-range">默认折叠 · 按实际校历显示</div></div></summary><div class="fold-body"><div class="muted">课程名 · 教室 · 节次与具体时间；假期停课，调休课程按原课程日转移。</div><div class="week-scroll" id="week-schedule"></div></div></details></section>
+<section><div class="heading"><h2>Blackboard 作业</h2><span class="pill unknown" id="assignment-count"></span></div><p class="muted">点击小三角查看描述、要求、附件和提交记录；文件只有在点击“提交作业”后才会上传。</p><div id="assignments"></div></section>
+<section><h2>考试与待评教</h2><h3>后续考试</h3><div id="exams"></div><h3>待评教</h3><div id="evals"></div></section>
+<section class="wide" id="materials-panel"><div class="material-heading"><h2>课程与资料</h2><span id="material-agent" class="pill unknown">正在连接下载代理</span></div>
+<p class="muted">默认保存到 D:\download\课程名\资料目录；“浏览器另存”使用浏览器下载目录。批量下载跳过已核验文件，不覆盖已有文件。</p>
+<div class="material-toolbar"><label class="material-search">搜索附件<input id="material-search" type="search" placeholder="文件名、课程或资料目录"></label>
+<label>显示<select id="material-filter"><option value="all">全部附件</option><option value="pending">未保存</option><option value="saved">已保存</option><option value="failed">下载失败</option></select></label>
+<button id="material-refresh" type="button" class="secondary">刷新附件清单</button><button id="material-download-all" type="button" disabled>全部资料下载</button></div>
+<div class="material-auto"><label><input type="checkbox" id="material-auto">自动下载新附件</label><span class="muted">仅下载原基线之后新出现的资料；旧资料可用“全部资料下载”。本机离线时保留下载请求。</span></div>
+<p id="material-summary" class="muted">正在读取附件清单…</p><div id="material-message" class="notice" hidden role="status"></div><div id="material-jobs"></div><div id="material-courses"></div></section>
+<section class="wide" id="venues-panel"><div class="heading"><h2>场地与预约</h2><button id="venues-refresh" class="secondary" type="button">刷新场地</button></div>
+<p class="muted">进入预约页可查看具体占用、先输入目标时段筛选空闲场地，以及查询和管理我的预约。</p><div id="venues-message"></div>
+<label>搜索场地<input id="venue-catalog-search" type="search" placeholder="名称、类型或位置"></label>
+<div class="split"><div><h3>图书馆场地</h3><div id="library-venues" class="venue-catalog"></div></div><div><h3>E-Hall 场地</h3><div id="ehall-venues" class="venue-catalog"></div></div></div>
+<div class="split"><div><h3>我的图书馆预约</h3><div id="library-mine"></div></div><div><h3>我的 E-Hall 预约</h3><div id="ehall-mine"></div></div></div></section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='dashboard.js') }}"></script><script src="{{ url_for('static',filename='assignments.js') }}"></script><script src="{{ url_for('static',filename='materials.js') }}"></script>{% endblock %}

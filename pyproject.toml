@@ -5,11 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "sustech-campus-dashboard"
 version = "0.1.0"
-description = "Local SUSTech dashboard, incremental Blackboard sync, and isolated room booking monitor"
-requires-python = ">=3.10"
+description = "Private SUSTech dashboard, Blackboard coursework and campus bookings"
+requires-python = ">=3.11"
 dependencies = [
   "flask>=3.0,<4",
   "waitress>=3,<4",
+  "beautifulsoup4>=4.12,<5",
   "sustech_survival @ git+https://github.com/dumixthestpd/sustech_survival.git@acd20323af6d3bc91c3e89974283d39d85109678",
 ]
 

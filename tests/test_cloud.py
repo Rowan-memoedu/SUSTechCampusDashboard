@@ -11,7 +11,7 @@ def test_cloud_prefix_and_csrf(monkeypatch, tmp_path):
     page = client.get("/", headers=headers)
     assert page.status_code == 200
     assert b'const apiBase="/campus"' in page.data
-    assert client.post("/api/room-watch", headers=headers, json={}).status_code == 400
+    assert client.post("/api/venues/book", headers=headers, json={}).status_code == 400
     assert client.post("/api/download-status", headers=headers, json={"mode": "incremental"}).status_code == 403
 
 

@@ -147,15 +147,15 @@ class Blackboard:
         self._courses = selected
         return selected
 
-    def _contents(self, course_id: str, parent_id: str | None = None):
+    def _contents(self, course_id: str, parent_id: str | None = None, folders: tuple = ()):
         path = f"/learn/api/public/v1/courses/{course_id}/contents"
         if parent_id:
             path += f"/{parent_id}/children"
         for item in self.results(path):
-            yield item
+            yield dict(item, _folder_path=list(folders))
             if item.get("hasChildren"):
                 try:
-                    yield from self._contents(course_id, item["id"])
+                    yield from self._contents(course_id, item["id"], folders + (item.get("title") or "资料",))
                 except HTTPError as exc:
                     if exc.response is None or exc.response.status_code != 403:
                         raise
@@ -185,6 +185,8 @@ class Blackboard:
                     "id": attachment["id"],
                     "file_name": attachment.get("fileName") or "附件",
                     "title": item.get("title", ""),
+                    "folders": item.get("_folder_path", []),
+                    "size": attachment.get("fileSize") or attachment.get("size"),
                 })
         skipped = getattr(self, "_inaccessible_folders", 0) - before + inaccessible_attachments
         if skipped:
@@ -246,6 +248,9 @@ class Blackboard:
                     "course": course["name"], "course_id": cid,
                     "name": col.get("name") or "未命名作业",
                     "content_id": col["contentId"],
+                    "column_id": col["id"],
+                    "kind": content.get("contentHandler", {}).get("id"),
+                    "attempts_allowed": col.get("grading", {}).get("attemptsAllowed"),
                     "due": due or None,
                     "status": submission_status(attempts),
                     "attempts": len(attempts) if attempts is not None else None,

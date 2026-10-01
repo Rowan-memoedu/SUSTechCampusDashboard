@@ -1,0 +1,30 @@
+.material-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.material-heading h2 {margin-bottom:0}
+.material-toolbar {display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.material-toolbar label {display:grid;gap:4px;color:var(--muted);font-size:13px}
+.material-toolbar input,.material-toolbar select {font:inherit;font-size:15px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:white;color:var(--ink)}
+.material-search {flex:1;min-width:180px}
+.secondary {color:var(--blue);background:#e7f1f4}
+.material-auto {display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap;font-size:13px}
+.material-auto label {color:var(--ink);font-weight:600;white-space:nowrap}
+.material-auto input {accent-color:var(--blue);vertical-align:middle;margin-right:6px}
+.material-course {border:1px solid var(--line);border-radius:8px;margin-top:12px;overflow:hidden}
+.material-course summary {cursor:pointer;padding:13px 16px;background:#edf5f6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;list-style:none}
+.material-course summary::before {content:'▸';color:var(--muted)}
+.material-course[open] summary::before {content:'▾'}
+.material-course summary strong {flex:1;min-width:200px}
+.material-course summary button {font-size:13px}
+.material-files {padding:0 16px}
+.material-file {display:flex;align-items:center;gap:15px;padding:13px 0;border-top:1px solid var(--line)}
+.material-file:first-child {border-top:0}
+.material-file-main {flex:1;min-width:0}
+.material-file-title {font-weight:600;overflow-wrap:anywhere}
+.material-file-sub {font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin-top:3px}
+.material-file-actions {display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:end}
+.material-file-actions button {font-size:13px;padding:6px 11px}
+.material-file-actions a {font-size:12px;color:var(--blue);white-space:nowrap}
+.material-job {padding:10px 13px;border-radius:8px;background:#f3f7f7;margin:8px 0;font-size:13px}
+.material-job-head {display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap}
+.material-job progress {width:100%;height:8px;accent-color:var(--blue);margin-top:8px}
+.material-job button {font-size:12px;padding:4px 9px;margin-top:6px}
+@media(max-width:650px){.material-file {align-items:start;flex-direction:column;gap:8px}.material-file-actions {justify-content:start}.material-course summary strong{min-width:140px}.material-toolbar button{flex:1}}

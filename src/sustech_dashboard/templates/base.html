@@ -1,0 +1,5 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}南科大校园面板{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static',filename='campus.css') }}"><link rel="stylesheet" href="{{ url_for('static',filename='materials.css') }}"></head><body>
+<header>{% block header %}<h1>南科大校园面板</h1><p id="updated">正在读取校园数据…</p>{% endblock %}</header>
+<main>{% block content %}{% endblock %}</main>
+<script>const roomCsrf={{ csrf_token|tojson }};const apiBase={{ api_base|tojson }};</script><script src="{{ url_for('static',filename='common.js') }}"></script>
+{% block scripts %}{% endblock %}</body></html>

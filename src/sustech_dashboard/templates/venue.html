@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% block title %}场地查询与预约 · 南科大校园面板{% endblock %}
+{% block header %}<a class="breadcrumb" href="{{ api_base }}/#venues-panel">← 返回校园面板</a><h1 id="venue-title">场地查询与预约</h1><p>查看官方安排 · 按时段筛选 · 提交并核对我的预约</p>{% endblock %}
+{% block content %}
+<section class="wide"><div class="heading"><h2>查询预约情况</h2><a id="official-venue" target="_blank" rel="noopener" class="button secondary">官方系统</a></div>
+<div class="toolbar"><label>日期<input type="date" id="venue-date"></label><label>目标开始<input type="time" id="venue-begin" step="600" value="10:00"></label><label>目标结束<input type="time" id="venue-end" step="600" value="12:00"></label><label>搜索场地<input id="venue-search" type="search" placeholder="房间名、楼层或位置"></label><button id="venue-load" type="button">查询</button></div>
+<p><label><input type="checkbox" id="venue-only-free"> 只显示目标时段内全程空闲的场地</label></p><div id="venue-message" role="status"></div><div id="venue-results"></div>
+</section>
+<section class="wide sticky-form" id="booking-form-section"><h2>预约选定场地</h2><p id="selected-room" class="muted">先在上方选择场地，再填写预约内容。</p>
+<form id="booking-form"><div class="form-grid"><label>预约主题<input id="booking-title" maxlength="80" required placeholder="如：课程讨论"></label><label>预约日期<input id="booking-date" type="date" required></label><label>开始<input id="booking-begin" type="time" step="600" required></label><label>结束<input id="booking-end" type="time" step="600" required></label></div>
+<div class="form-grid"><label>活动内容或备注<textarea id="booking-memo" placeholder="E-Hall 请填写活动内容；图书馆备注可选"></textarea></label><label id="manual-members-label">共同申请人编号（本人自动加入）<input id="booking-members" placeholder="可通过下方搜索添加，或输入编号，以逗号分隔"></label></div>
+<div class="toolbar"><label>搜索共同申请人<input id="member-search" placeholder="姓名或学号，至少两个字符"></label><button id="member-find" type="button" class="secondary">搜索</button><span id="member-hint" class="muted"></span></div><div id="member-results"></div>
+<div id="eh-extra" hidden><div class="form-grid"><label>活动类型<select id="meeting-type"></select></label><label>活动方式<select id="meeting-style"></select></label><label>申请资料附件<input id="booking-files" type="file" multiple></label></div></div>
+<div id="booking-message" role="status"></div><div class="submission-footer"><button id="booking-submit" type="submit" disabled>提交预约</button></div></form>
+</section>
+<section class="wide record-list"><div class="heading"><h2>我的预约</h2><button type="button" id="mine-refresh" class="secondary">重新核对</button></div><div class="toolbar"><label>开始日期<input id="mine-start" type="date"></label><label>结束日期<input id="mine-end" type="date"></label><label id="mine-status-label">官方状态<select id="mine-status"><option value="">全部</option><option value="6">未开始</option><option value="4">已开始</option><option value="16">已违约</option><option value="8">已结束</option></select></label></div><div id="mine-message"></div><div id="mine-records"></div></section>
+{% endblock %}{% block scripts %}<script>const venueSystem={{ system|tojson }},venueCategory={{ category|tojson }};</script><script src="{{ url_for('static',filename='venues.js') }}"></script>{% endblock %}

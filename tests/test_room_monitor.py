@@ -86,6 +86,6 @@ def test_local_booking_endpoint_rejects_cross_origin():
     from sustech_dashboard.app import create_app
 
     client = create_app().test_client()
-    response = client.post("/api/room-watch", json=target(), headers={"Origin": "https://example.org"})
+    response = client.post("/api/venues/book", json=target(), headers={"Origin": "https://example.org"})
     assert response.status_code == 400
     assert "来源" in response.json["error"]

@@ -74,13 +74,19 @@ def read_daily_calendar(semester: dict, target: date) -> dict[str, Any]:
         raise RuntimeError("校历不包含当前 TIS 学期")
     # An autumn semester crosses New Year; never silently omit that year's holidays.
     checked_years = [year]
-    if target.year != year:
-        other = AcademicCalendar.load(target.year, level="undergraduate", cache_root=CACHE_ROOT)
+    monday = target - timedelta(days=target.weekday())
+    for extra_year in sorted({monday.year, (monday+timedelta(days=6)).year, target.year}-{year}):
+        other = AcademicCalendar.load(extra_year, level="undergraduate", cache_root=CACHE_ROOT)
         calendar.holidays.extend(other.holidays)
-        checked_years.append(target.year)
-    result = daily_view(term, [], target)
-    if result["calendar"]["kind"] not in {"holiday", "break", "vacation", "final"}:
-        result = daily_view(term, schedule.class_times(xn=semester["XN"], xq=season), target)
+        checked_years.append(extra_year)
+    patterns = schedule.class_times(xn=semester["XN"], xq=season)
+    result = daily_view(term, patterns, target)
+    days = []
+    for offset in range(7):
+        day = monday + timedelta(days=offset)
+        view = daily_view(term, patterns, day)
+        days.append({"date": day.isoformat(), "calendar": view["calendar"], "classes": view["today_classes"]})
+    result["week_schedule"] = {"start": monday.isoformat(), "end": (monday+timedelta(days=6)).isoformat(), "days": days}
     dates = []
     for checked_year in checked_years:
         files = load_json(CACHE_ROOT / "calendar" / str(checked_year) / ".meta.json", {}).get("files", {})
