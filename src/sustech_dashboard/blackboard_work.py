@@ -70,7 +70,7 @@ def review_files(soup,prefix=''):
         except ValueError:continue
         anchor=link.parent.select_one('a.attachment')
         name=anchor.get_text(strip=True) if anchor else parse_qs(urlparse(path).query).get('fileName',['附件'])[0]
-        result.append({'name':name,'url':prefix+'/api/blackboard-resource?path='+quote(path,safe='')})
+        result.append({'name':name,'url':prefix+'/api/blackboard-resource?path='+quote(path,safe='')+'&name='+quote(name,safe='')})
     return result
 
 
@@ -118,7 +118,7 @@ def detail(bb,cid,iid,prefix=''):
             'description_html':safe_html(content.get('body'),prefix),'content':content,'column':col,
             'attempts':history,'assessment':assessment,'official_text':page_text[:30000],
             'review_html':review_html,
-            'attachments':[dict(a,key=attachment_key(cid,iid,a['id']),download_url=prefix+'/api/blackboard-resource?path='+quote(f'/learn/api/public/v1/courses/{cid}/contents/{iid}/attachments/{a["id"]}/download',safe='')) for a in atts],
+            'attachments':[dict(a,key=attachment_key(cid,iid,a['id']),download_url=prefix+'/api/blackboard-resource?path='+quote(f'/learn/api/public/v1/courses/{cid}/contents/{iid}/attachments/{a["id"]}/download',safe='')+'&name='+quote(a.get('fileName') or '附件',safe='')) for a in atts],
             'can_submit':can_submit and not content.get('contentHandler',{}).get('groupContent'),
             'official_url':BB_BASE+f'/webapps/blackboard/execute/displayIndividualContent?course_id={cid}&content_id={iid}',
             'warnings':warnings}

@@ -237,3 +237,18 @@ def test_reservation_details_require_own_record(monkeypatch):
     def forbidden():raise AssertionError('Must not access an unowned reservation')
     monkeypatch.setattr(venues,'eh_client',forbidden)
     with pytest.raises(ValueError):venues.reservation_detail('ehall','other-id')
+
+
+def test_resource_proxy_preserves_filename_without_upstream_disposition(monkeypatch):
+    from sustech_dashboard import app
+    from urllib.parse import unquote
+    monkeypatch.setattr(app,'CLOUD',False)
+    upstream=SimpleNamespace(headers={'Content-Type':'application/pdf'},iter_content=lambda n:iter([b'%PDF']),close=lambda:None)
+    monkeypatch.setattr(app,'Blackboard',lambda:SimpleNamespace(get=lambda *a,**kw:upstream))
+    client=app.create_app().test_client()
+    response=client.get('/api/blackboard-resource',query_string={'path':'/bbcswebdav/fixture.pdf','name':'习题.pdf'})
+    assert unquote(response.headers['Content-Disposition']).endswith('习题.pdf')
+    assert response.data==b'%PDF'
+    response.close()
+    assert app._bb_lock.acquire(blocking=False)
+    app._bb_lock.release()

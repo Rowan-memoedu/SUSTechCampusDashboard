@@ -14,7 +14,7 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request, Response, stream_with_context, abort
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .core import CHINA_TZ, DASHBOARD_PORT, DATA_ROOT, DOWNLOAD_ROOT, attachment_key, load_json, save_json, sync_attachments, parse_dt
+from .core import CHINA_TZ, DASHBOARD_PORT, DATA_ROOT, DOWNLOAD_ROOT, attachment_key, load_json, save_json, sync_attachments, parse_dt, safe_name
 from .provider import Blackboard, read_bookings, read_tis
 from .room_monitor import schedule, validate_target
 from . import monitor_remote
@@ -253,6 +253,8 @@ def create_app() -> Flask:
             response=Response(stream_with_context(chunks()),mimetype=mime)
             disposition=upstream.headers.get('Content-Disposition','attachment')
             response.headers['Content-Disposition']=disposition if disposition.lower().startswith('attachment') or mime.startswith(('image/png','image/jpeg','image/gif','image/webp')) else 'attachment'
+            if request.args.get('name'):
+                response.headers['Content-Disposition']="attachment; filename*=UTF-8''"+quote(safe_name(request.args['name']),safe='')
             response.headers['Content-Security-Policy']="sandbox; default-src 'none'"
             response.headers['X-Content-Type-Options']='nosniff'
             response.headers['Cache-Control']='private, no-store'
