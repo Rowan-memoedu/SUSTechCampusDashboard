@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -11,6 +12,27 @@ SOURCE = "https://github.com/dumixthestpd/sustech-calendar"
 CACHE_ROOT = DATA_ROOT / "calendar-cache"
 WEEKDAYS = {"Monday": "周一", "Tuesday": "周二", "Wednesday": "周三",
             "Thursday": "周四", "Friday": "周五", "Saturday": "周六", "Sunday": "周日"}
+_calendar_failures = {}
+
+
+def load_recent_calendar(year):
+    """On-demand views reuse the calendar already refreshed by the background sync."""
+    from sustech_survival.calendar import AcademicCalendar, CalendarError
+    root=CACHE_ROOT/'calendar'
+    files=load_json(root/str(year)/'.meta.json',{}).get('files',{})
+    dates=[parse_dt(files.get(name,{}).get('fetched_at')) for name in ('undergraduate.json','graduate.json','general.json')]
+    if all(d and datetime.now(CHINA_TZ)-d<timedelta(days=1) for d in dates):
+        try:
+            return AcademicCalendar.load(year,'undergraduate',base_url=str(root))
+        except Exception:
+            pass
+    if time.monotonic()-_calendar_failures.get(year,-1000)<600:
+        raise CalendarError('该年份校历暂不可用，稍后重试')
+    try:
+        return AcademicCalendar.load(year,'undergraduate',cache_root=CACHE_ROOT)
+    except CalendarError:
+        _calendar_failures[year]=time.monotonic()
+        raise
 
 
 def daily_view(term: Any, patterns: list, target: date) -> dict[str, Any]:

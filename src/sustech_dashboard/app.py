@@ -515,6 +515,8 @@ def create_app() -> Flask:
     def stop_room_watch():
         return jsonify({'error':'讨论间后台监控已撤销，请使用场地与预约'}),410
 
+    from .services_routes import register_services
+    register_services(app, local_request, csrf, _public_error)
     return app
 
 

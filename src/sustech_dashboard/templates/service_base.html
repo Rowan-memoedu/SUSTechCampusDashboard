@@ -1,0 +1,4 @@
+{% extends 'base.html' %}
+{% block title %}{{ page_title }} · 南科大校园面板{% endblock %}
+{% block header %}<a class="breadcrumb" href="{{ api_base }}/">校园面板 / {% if page_title == '空闲教室' %}场地与预约 / {% endif %}</a><h1>{{ page_title }}</h1><p id="service-updated">按需查询学校系统 · 数据仅对本人开放</p>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='services.js') }}"></script>{% endblock %}

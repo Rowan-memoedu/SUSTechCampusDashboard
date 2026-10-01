@@ -1,0 +1,5 @@
+{% extends 'service_base.html' %}
+{% block content %}
+<section class="wide" data-service="classrooms"><h2>按日期和节次查找教室</h2><form class="toolbar" id="classroom-form"><label>日期<input id="classroom-date" type="date" required></label><label>开始节次<input id="classroom-start" type="number" min="1" max="12" value="1" required></label><label>结束节次<input id="classroom-end" type="number" min="1" max="12" value="2" required></label><label>地点关键词<input id="classroom-query" placeholder="一教、智华楼…"></label><label>至少容纳人数<input id="classroom-capacity" type="number" min="0" max="10000" value="0"></label><label><span><input id="classroom-free" type="checkbox" checked> 仅课表空闲</span></label><button>查找教室</button></form><div id="service-message" role="status"></div><p id="classroom-calendar" class="muted"></p><p id="classroom-note" class="muted"></p><a href="https://tis.sustech.edu.cn/#/cdjy" target="_blank" rel="noopener">到教务系统办理场地借用申请</a></section>
+<section class="wide"><div id="classroom-results" class="split"></div><div id="classroom-pages" class="actions"></div></section>
+{% endblock %}

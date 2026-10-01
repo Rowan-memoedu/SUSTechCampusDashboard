@@ -11,6 +11,7 @@ dependencies = [
   "flask>=3.0,<4",
   "waitress>=3,<4",
   "beautifulsoup4>=4.12,<5",
+  "pycryptodome>=3.20,<4",
   "sustech_survival @ git+https://github.com/dumixthestpd/sustech_survival.git@acd20323af6d3bc91c3e89974283d39d85109678",
 ]
 
