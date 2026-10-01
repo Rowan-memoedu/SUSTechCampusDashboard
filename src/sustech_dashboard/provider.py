@@ -266,8 +266,16 @@ def read_tis() -> dict[str, Any]:
     semester = schedule.current_semester()
     week = schedule.current_week()
     today = datetime.now(CHINA_TZ)
-    classes = schedule.week_schedule(week)
     errors: list[str] = []
+    from .academic_calendar import read_daily_calendar
+    try:
+        daily = read_daily_calendar(semester, today.date())
+        if daily["calendar"].get("cached_data"):
+            errors.append("在线校历暂未完成最新核验，正在使用已缓存校历；请核对校历核验时间")
+    except Exception as exc:
+        daily = {"today_classes": [], "calendar": {"date": today.date().isoformat(),
+                 "kind": "unknown", "label": "今日课表暂不可确认"}}
+        errors.append(f"校历或课表读取失败：{type(exc).__name__}；未按普通星期推断课程")
     try:
         exams = fetch_exams(auth)
     except Exception as exc:
@@ -281,7 +289,8 @@ def read_tis() -> dict[str, Any]:
     return {
         "semester": semester.get("XNXQ") or semester.get("XN", ""),
         "week": week,
-        "today_classes": [c for c in classes if str(c.get("KEY", "")).startswith(f"xq{today.isoweekday()}_")],
+        "date": today.date().isoformat(),
+        **daily,
         "exams": [e for e in exams if str(e.get("KSRQ", "")) >= today.date().isoformat()],
         "pending_evals": evals,
         "errors": errors,

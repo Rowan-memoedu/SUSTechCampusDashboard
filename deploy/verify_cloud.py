@@ -24,6 +24,8 @@ print(json.dumps({
     "errors": data.get("errors"), "warnings": data.get("warnings"),
     "source_updated_at": data.get("source_updated_at"),
     "tis_errors": data.get("tis", {}).get("errors"),
+    "calendar": data.get("tis", {}).get("calendar"),
+    "today_class_count": len(data.get("tis", {}).get("today_classes", [])),
     "booking_counts": {k: len(v) for k,v in data.get("bookings", {}).items() if isinstance(v,list)},
     "downloads": data.get("downloads"),
 }, ensure_ascii=False), flush=True)

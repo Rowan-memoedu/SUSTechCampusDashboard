@@ -106,8 +106,17 @@
     metric(metrics,pending.length,'未提交或草稿作业'); metric(metrics,(tis.exams||[]).length,'后续考试');
     const weather=data.weather||{}; if(weather.condition) metric(metrics,`${weather.temperature??'—'}°C`,weather.condition);
     const classes=clear('classes'); classes.append(node('h3','今日课程'));
-    const todays=tis.today_classes||[]; if(!todays.length) empty(classes,'今日无课或课表暂不可用');
-    else todays.forEach(c=>row(classes,c.KCMC||c.SKSJ||'课程',c.SKSJ||''));
+    const cal=tis.calendar||{}, todays=tis.today_classes||[];
+    if(tis.date!==localDate()) empty(classes,'等待今日课表同步，未显示其他日期的课程');
+    else {
+      if(cal.label) classes.append(node('div',cal.label,cal.kind==='unknown'?'notice':'ok'));
+      if(cal.kind==='holiday'&&cal.start&&cal.end) classes.append(node('div',`假期：${cal.start} 至 ${cal.end}`,'muted'));
+      if(cal.kind==='makeup'&&cal.source_date) classes.append(node('div',`按 ${cal.source_date}（第 ${cal.source_week} 教学周）的课表补课`,'muted'));
+      if(!todays.length && !['holiday','break','vacation','final','unknown'].includes(cal.kind)) empty(classes,'今日没有已排课程');
+      else todays.forEach(c=>row(classes,c.KCMC||c.SKSJ||'课程',c.SKSJ||''));
+      if(cal.next_makeup) classes.append(node('div',`下次调休补课：${cal.next_makeup.date} · ${cal.next_makeup.label}`,'muted'));
+      if(cal.data_checked_at) classes.append(node('div',`校历核验：${new Date(cal.data_checked_at).toLocaleString('zh-CN')}${cal.cached_data?' · 缓存数据':''}`,'muted'));
+    }
     const tasks=clear('assignments'); if(!assignments.length) empty(tasks,'暂无作业，或 Blackboard 尚未成功同步');
     else assignments.forEach(a=>{
       const outer=row(tasks,a.name,`${a.course} · ${a.due?new Date(a.due).toLocaleString('zh-CN'):'未标截止时间'}`);
