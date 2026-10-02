@@ -11,7 +11,9 @@ from sustech_dashboard.dpapi_store import unprotect_password
 
 config = json.loads(CONFIG.read_text(encoding="utf-8"))
 base = config["url"].rstrip("/")
-assert requests.get(base + "/", timeout=15).status_code == 401
+anonymous = requests.get(base + "/", timeout=15, allow_redirects=False)
+assert anonymous.status_code == 302 and anonymous.headers["Location"].endswith("/campus/auth/login")
+assert requests.get(base + "/api/status", timeout=15).status_code == 401
 session = requests.Session()
 session.auth = (config["username"], unprotect_password(config["password_dpapi"]))
 page = session.get(base + "/", timeout=15)
@@ -21,7 +23,7 @@ status.raise_for_status()
 instance = status.json()
 assert instance["configured"] and instance["managed"] and instance["mode"] == "个人服务器"
 print(json.dumps({"version": instance["version"], "configured": instance["configured"],
-    "unauthenticated": 401, "authenticated": 200, "download_mode": instance["download_mode"],
+    "unauthenticated": 302, "unauthenticated_api": 401, "authenticated": 200, "download_mode": instance["download_mode"],
     "update_state": instance["update"]["state"]}), flush=True)
 for path in ("/settings", "/grades", "/printing", "/selection", "/venues/classroom/free", "/static/instance.js"):
     assert session.get(base + path, timeout=20).status_code == 200, path

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · 南科大校园面板</title><link rel="stylesheet" href="{{ url_for('static', filename='campus.css') }}"></head>
+<body><header><h1>南科大校园面板</h1><p>登录后查看课程、作业与校园服务</p></header>
+<main class="login-main"><section><h2>登录校园面板</h2><p class="muted">使用网站访问账号登录。</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ url_for('web_login') }}" class="login-form">
+<input type="hidden" name="csrf" value="{{ csrf_token }}">
+<label for="username">用户名</label><input id="username" name="username" autocomplete="username" maxlength="200" required autofocus>
+<label for="password">网站访问密码</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+<label class="remember-label"><input name="remember" type="checkbox" checked>在此浏览器保持登录 30 天</label>
+<button type="submit">登录</button></form></section></main></body></html>

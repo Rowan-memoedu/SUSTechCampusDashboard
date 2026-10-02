@@ -178,6 +178,10 @@ def create_app(runtime=None) -> Flask:
             if not secrets.compare_digest(request.headers.get("X-CSRF-Token", ""), csrf):
                 raise ValueError("页面令牌无效，请刷新页面")
 
+    if CLOUD and os.environ.get("SUSTECH_BROWSER_LOGIN") == "1":
+        from .web_auth import register_web_auth
+        register_web_auth(app, local_request, csrf)
+
     @app.get("/")
     def index():
         local_request()

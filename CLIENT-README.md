@@ -3,7 +3,7 @@
 解压整个安装包，然后运行 `campus-client.exe`（Windows）或 `./campus-client`（Linux）。网页会在本机浏览器打开，首次使用输入自己的学校 CAS 账号。不要仅复制 exe：它需要同目录的 `_internal` 文件夹。
 
 - 每台设备、每个实例只使用一个人的校园账号。无需注册发布者的服务账号。
-- Windows 密码用当前用户的 DPAPI 加密；其他 Windows 用户无法直接解密。Linux 网页登录仅保存在本次进程内，长期开机服务器使用 systemd 加密凭据。
+- Windows 的 CAS 密码用当前用户的 DPAPI 加密；其他 Windows 用户无法直接解密。Linux 网页输入的 CAS 凭据仅保存在本次进程内，长期开机服务器使用 systemd 加密凭据。
 - 默认数据位置：Windows 有 D 盘时为 `D:\AppData\SUSTechCampusDashboard`，否则为当前用户的 LocalAppData；Linux 为 `~/.local/share/sustech-campus-dashboard`。
 - 默认下载位置：Windows 有 D 盘时为 `D:\download`，其他情况为用户的 `Downloads/SUSTech`。首次完整扫描只建立基线，自动模式下载之后新出现的附件；手动下载包含旧资料。
 - 运行前设置 `SUSTECH_DASHBOARD_DATA_ROOT`、`SUSTECH_DOWNLOAD_ROOT` 可指定绝对目录。不同账号必须使用不同目录及 `--port`，不会自动合并记录。
@@ -13,6 +13,8 @@
 - 作业提交、预约、选退课等仍由本人在页面点击触发；不确定的回执不会自动重复发送。已撤销的讨论间后台监控不会重新启用。
 
 ## 自己的常开服务器
+
+已启用网页登录的个人服务器默认勾选“在此浏览器保持登录 30 天”。关闭浏览器或重启服务后可继续访问；页面顶部可退出登录。浏览器只保存可撤销的随机登录凭证，网站访问密码及 CAS 密码不会写入该 cookie。无痕模式、清除网站数据、主动退出或到期后需要重新登录。
 
 使用同一套程序，运行 `./campus-client --no-browser --port 18771`，设置 `SUSTECH_CLOUD=1`、`SUSTECH_PUBLIC_HOST=自己的域名`、`SUSTECH_DASHBOARD_DATA_ROOT=绝对数据目录`。程序只监听回环地址，外部访问由 HTTPS 反向代理及独立访问认证保护。
 

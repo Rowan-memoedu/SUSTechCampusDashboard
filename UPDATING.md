@@ -8,6 +8,14 @@ Windows 客户端与 Linux 服务器使用同一套 Python 业务实现和网页
 
 Windows 使用 DPAPI，兼容已有 SecureString 文件。Linux 使用 systemd 加密凭据；首次网页登录可仅存内存。上游凭据文件回退被禁用，上游缓存位于实例目录。CAS 使用 Requests 标准证书和主机名校验。
 
+### 个人服务器的网页登录
+
+0.2.2 增加独立的网站访问会话：默认在浏览器保留 30 天，关闭浏览器、后端重启或版本更新后继续有效；主动退出会撤销当前凭证。随机凭证仅通过 HTTPS 的 Secure、HttpOnly、SameSite=Lax cookie 传输，数据库只保存其 SHA-256 摘要。更换网站访问密码后旧会话失效；登录和退出都检查 Origin 与 CSRF，错误密码有频率限制。
+
+现有配对下载代理继续使用网站访问账号。CAS 凭据保持原有 DPAPI/systemd 管理方式。网站访问密码只保留 Werkzeug scrypt 哈希，由 systemd `LoadCredential=campus-web` 传给进程；设置 `SUSTECH_BROWSER_LOGIN=1` 后启用。
+
+服务器需配套 `deploy/nginx-campus-browser.conf`：Nginx auth_request 每次确认后端许可；若回退到没有认证端点的旧版本则拒绝访问，避免因应用回退失去入口保护。`deploy/enable_browser_login.py` 在新运行时已安装后启用，先检查后端认证端点，再原子切换路由配置并验证 `nginx -t`；失败恢复原来的 Basic 认证配置。它从标准输入接收网站用户名和 scrypt 哈希，不能传入 CAS 密码。原来的 `nginx-campus.conf` 保留用于旧部署。
+
 ## 更新行为
 
 - 使用固定版本 python-tuf 7.0.0，随程序附带公开信任根；签名、哈希、过期时间及版本回退检查由 TUF 完成。

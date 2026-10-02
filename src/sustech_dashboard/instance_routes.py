@@ -41,7 +41,7 @@ def register_instance(app, runtime, guard, csrf):
                 runtime.active_writes += 1
                 g.campus_write = True
         if not runtime.configured.is_set() and request.endpoint not in {
-                "setup_page", "configure_owner", "instance_status", "settings_page", "static", "check_update", "install_update", "stop_instance"}:
+                "setup_page", "configure_owner", "instance_status", "settings_page", "static", "check_update", "install_update", "stop_instance", "web_login", "web_logout"}:
             if request.path.startswith("/api/"):
                 return jsonify({"error": "请先在本机登录校园账号", "setup_required": True}), 401
             return redirect(request.script_root + "/setup")
