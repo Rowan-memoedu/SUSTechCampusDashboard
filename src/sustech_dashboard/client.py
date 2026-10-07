@@ -9,7 +9,7 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--agent", action="store_true", help="连接自己服务器的附件下载代理")
+    parser.add_argument("--agent", action="store_true", help="连接自己服务器的执行主机客户端（附件下载与打印）")
     args = parser.parse_args()
     if args.self_test:
         from waitress import create_server

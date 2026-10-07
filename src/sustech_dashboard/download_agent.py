@@ -1,5 +1,6 @@
 """Download new Blackboard attachments through the private HTTPS dashboard."""
 import json
+import os
 import threading
 import time
 import uuid
@@ -19,14 +20,22 @@ CONFIG = DATA_ROOT / "cloud-access.dpapi.json"
 
 
 def cloud_session():
-    config = json.loads(CONFIG.read_text(encoding="utf-8"))
+    if os.name == 'nt':
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))
+        password = unprotect_password(config['password_dpapi'])
+    else:
+        # Linux execution hosts use a private systemd credential, never a plaintext data file.
+        directory = os.environ.get('CREDENTIALS_DIRECTORY')
+        if not directory:raise ValueError('Linux 执行主机需配置 systemd campus-pair 凭据')
+        config = json.loads((Path(directory) / 'campus-pair').read_text(encoding='utf-8'))
+        password = config['password']
     url = config["url"]
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("个人服务器必须使用 HTTPS 地址")
     url = url.rstrip("/")
     session = requests.Session()
-    session.auth = (config["username"], unprotect_password(config["password_dpapi"]))
+    session.auth = (config["username"], password)
     session.mount(url, HTTPAdapter(max_retries=Retry(
         total=2, allowed_methods={"GET"}, backoff_factor=1, status_forcelist={502, 503, 504})))
     return url, session
@@ -111,13 +120,29 @@ def _sync_once():
 
 
 def main():
+    from .paths import prepare_private_directory
+    prepare_private_directory()
+    identity = DATA_ROOT / 'download-agent-id.txt'
+    if not identity.exists():
+        try:
+            with identity.open('x',encoding='ascii') as handle:handle.write(uuid.uuid4().hex)
+        except FileExistsError:pass
     url, session = cloud_session()
     def poll(payload):
         response = session.post(url + "/api/materials/agent", json=payload,
                     headers={"X-Campus-Agent": "1"}, timeout=(10, 30))
         response.raise_for_status()
         return response.json()
-    run_agent(CloudFiles, poll, threading.Event())
+    stop = threading.Event()
+    from .print_agent import run as print_agent
+    # One paired client, with independent workers so downloads never delay print polling.
+    worker = threading.Thread(target=print_agent, args=(stop,), name='campus-print-agent')
+    worker.start()
+    try:
+        run_agent(CloudFiles, poll, stop)
+    finally:
+        stop.set()
+        worker.join(timeout=300)
 
 
 def run_agent(provider_factory, poll, stop):

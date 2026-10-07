@@ -16,26 +16,31 @@ _auth=None
 NETWORK_MESSAGE='联创打印仅限校园网或学校 VPN。当前服务连接到了校外提示页，无法读取打印队列；这不表示队列为空。'
 
 
+def check_network():
+    import requests
+    r=requests.get('https://pms.sustech.edu.cn/api/client/Auth/PublicKey',timeout=(8,20))
+    if '仅限校内访问' in r.text or 'available only from the campus network' in r.text:
+        raise ValueError(NETWORK_MESSAGE)
+    r.raise_for_status()
+    if r.json().get('code') != 0:raise ValueError('本机暂时无法访问学校打印接口')
+
+
 def client():
     global _auth
     import requests
     from sustech_survival.pms import PMSClient
-    from sustech_survival.sso.authlib.pms import PMSAuth
     r=requests.get('https://pms.sustech.edu.cn/client/new/cprintPc/',timeout=(8,20))
     if '仅限校内访问' in r.text or 'available only from the campus network' in r.text:
         raise ValueError(NETWORK_MESSAGE)
     r.raise_for_status()
     if _auth is not None:
         try:
-            ok,_=_auth.check()
-            if ok:return PMSClient(_auth.session)
+            response=_auth.post('https://pms.sustech.edu.cn/api/client/Auth/Check',timeout=(10,30))
+            if response.json().get('code')==0:return PMSClient(_auth)
         except Exception:pass
-    a=PMSAuth()
-    a.login_password()
-    ok,_=a.check()
-    if not ok:raise ValueError('打印账号认证失败，请在学校打印系统确认账号状态')
-    _auth=a
-    return PMSClient(a.session)
+    from .print_auth import login
+    _auth=login()
+    return PMSClient(_auth)
 
 
 def overview():
@@ -70,11 +75,7 @@ def upload_target(filename, content, opts):
 
 
 def upload(filename, content, opts):
-    if not filename or not content:raise ValueError('请选择要打印的文件')
-    if len(content)>50*1024*1024:raise ValueError('单个打印文件不能超过 50 MB')
-    filename=safe_name(filename)
-    if Path(filename).suffix.lower() not in {'.pdf','.doc','.docx','.ppt','.pptx','.xls','.xlsx','.jpg','.jpeg','.png','.txt'}:
-        raise ValueError('不支持该文件格式，请优先使用 PDF')
+    filename=validate_upload(filename,content)
     c=client();before={j.dw_job_id for j in c.list_print_jobs()}
     root=DATA_ROOT/'print-staging';root.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(dir=root) as tmp:
@@ -87,6 +88,15 @@ def upload(filename, content, opts):
     valid=[j for j in new if j.dw_copies==opts['copies'] and j.is_color==(opts['color']==2) and j.is_duplex==(opts['duplex']!=1)]
     if len(valid)==1:return {'state':'confirmed','message':'已在官方打印队列中核对到新文档；请到打印点刷卡确认并打印','job_id':valid[0].dw_job_id}
     return {'state':'needs_review','message':'上传已被接收，队列可能正在转换文档；请刷新队列核对，暂不重复上传'}
+
+
+def validate_upload(filename,content):
+    if not filename or not content:raise ValueError('请选择要打印的文件')
+    if len(content)>50*1024*1024:raise ValueError('单个打印文件不能超过 50 MB')
+    filename=safe_name(filename)
+    if Path(filename).suffix.lower() not in {'.pdf','.doc','.docx','.ppt','.pptx','.xls','.xlsx','.jpg','.jpeg','.png','.txt'}:
+        raise ValueError('不支持该文件格式，请优先使用 PDF')
+    return filename
 
 
 def delete(kind, job_id):

@@ -4,7 +4,7 @@ import secrets
 import threading
 import time
 
-from flask import jsonify, render_template, request, Response
+from flask import jsonify, render_template, request, Response, send_file
 
 from . import study, printing, classrooms
 from .actions import Actions
@@ -25,6 +25,54 @@ def register_services(app, guard, csrf, public_error):
             except Exception as exc:
                 return jsonify({'error':public_error(exc)}),400
         return wrapped
+
+    def relay():
+        from .print_relay import PrintRelay
+        return PrintRelay()
+
+    def cloud_print():
+        from .app import CLOUD
+        return CLOUD
+
+    def agent_guard():
+        guard()
+        if (not cloud_print() or request.headers.get('X-Campus-Agent') != '1'
+                or not request.authorization or request.authorization.type != 'basic'):
+            raise ValueError('仅允许已认证的配对客户端访问')
+
+    @app.get('/api/printing/relay')
+    @api
+    def print_relay_status():
+        return relay().status() if cloud_print() else {'enabled': False}
+
+    @app.post('/api/printing/relay/pair')
+    @api
+    def print_relay_pair():
+        if not cloud_print():raise ValueError('本机模式无需配对打印电脑')
+        return relay().pair((request.get_json() or {}).get('agent_id'))
+
+    @app.get('/api/printing/operations/<jid>')
+    @api
+    def print_operation(jid):
+        return relay().operation(jid)
+
+    # Machine endpoints require Basic credentials, not a browser cookie; they do not use browser CSRF.
+    @app.post('/api/printing/agent')
+    def print_agent():
+        try:
+            agent_guard()
+            if (request.content_length or 0) > 3*1024*1024:raise ValueError('打印回执过大')
+            return jsonify(relay().poll(request.get_json() or {}))
+        except Exception as exc:return jsonify({'error':public_error(exc)}),400
+
+    @app.get('/api/printing/agent/file/<jid>')
+    def print_agent_file(jid):
+        try:
+            agent_guard()
+            path=relay().document(jid,request.headers.get('X-Print-Agent'))
+            return send_file(path,mimetype='application/octet-stream',conditional=False,
+                             max_age=0,download_name='document.bin')
+        except Exception as exc:return jsonify({'error':public_error(exc)}),400
 
     for path,template,title in [('grades','grades.html','成绩与学分'),('printing','printing.html','校园打印'),('selection','selection.html','选课辅助'),('venues/classroom/free','classrooms.html','空闲教室')]:
         def page(template=template,title=title):
@@ -96,11 +144,13 @@ def register_services(app, guard, csrf, public_error):
     @app.get('/api/printing')
     @api
     def print_overview():
+        if cloud_print():return relay().enqueue('overview')
         with printing.lock:return printing.overview()
 
     @app.get('/api/printing/history')
     @api
     def print_history():
+        if cloud_print():return relay().enqueue('history',dict(request.args))
         with printing.lock:return printing.history(request.args)
 
     @app.post('/api/printing/upload')
@@ -112,6 +162,9 @@ def register_services(app, guard, csrf, public_error):
         content=file.read(50*1024*1024+1)
         if len(content)>50*1024*1024:raise ValueError('单个打印文件不能超过 50 MB')
         opts=printing.options(request.form)
+        filename=printing.validate_upload(file.filename,content)
+        if cloud_print():return relay().enqueue('upload',{'filename':filename,'options':opts},
+            token=request.form.get('operation_id',''),target=printing.upload_target(filename,content,opts),content=content)
         def work():
             with printing.lock:return printing.upload(file.filename,content,opts)
         return Actions().run(request.form.get('operation_id'),printing.upload_target(file.filename,content,opts),work)
@@ -122,6 +175,9 @@ def register_services(app, guard, csrf, public_error):
         body=request.get_json() or {}
         if body.get('confirmed') is not True:raise ValueError('请先确认删除的文档')
         kind=body.get('kind');job_id=int(body.get('job_id',0))
+        if kind not in {'print','scan'} or job_id<=0:raise ValueError('打印文档标识无效')
+        if cloud_print():return relay().enqueue('delete',{'kind':kind,'job_id':job_id},
+            token=body.get('operation_id',''),target=f'print:delete:{kind}:{job_id}')
         def work():
             with printing.lock:return printing.delete(kind,job_id)
         return Actions().run(body.get('operation_id'),f'print:delete:{kind}:{job_id}',work)
