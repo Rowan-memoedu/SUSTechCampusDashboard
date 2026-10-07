@@ -40,6 +40,8 @@
 - 修复回归：Windows 全量 158 项通过、1 项平台跳过；Linux 全量 157 项通过、2 项平台跳过，包含真实 nginx 上传回归。
 - 本次只更新公共入口服务和 nginx 登录跳转，个人业务实例及 `0.3.1` 签名客户端包保持。nginx 恢复点：`/var/lib/campus-hosted-recovery/1791365628238347009/nginx.conf`。
 
+浏览器原账号登录补验：HTTP 验收脚本会主动设置 Origin，因此未发现 Chrome 原生表单受 `Referrer-Policy: no-referrer` 影响后发送 `Origin: null`，被严格来源校验拒绝的问题。入口应用和 nginx 现均使用 `same-origin`；继续拒绝 null/异站 Origin，保留 CSRF 校验，未重设用户名或密码。真实无头 Google Chrome 已使用原有面板凭据完成表单提交，收到 303 并进入 `/campus/` 的 200 页面；浏览器来源恢复为本站 HTTPS。
+
 ### 原业务与部署验收
 
 - 最终 Windows 全量 pytest：149 项通过、1 项平台跳过；Linux：148 项通过、2 项平台跳过。包含真实 nginx 上传、未登录及超限拦截，以及只删除已验证过期备份、保留当前/未验证/无关目录的恢复保留测试。

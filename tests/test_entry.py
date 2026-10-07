@@ -54,6 +54,7 @@ def test_owner_login_remember_and_expired_session_escape(entrance):
     client, calls, _, _ = entrance
     page = get(client)
     assert page.status_code == 200 and '进入面板' in page.text
+    assert page.headers['Referrer-Policy'] == 'same-origin'
     result = post(client, username='owner', remember='on')
     assert result.status_code == 303 and result.location == '/campus/'
     assert calls[-1][0] == '/campus' and calls[-1][2]['username'] == 'owner'
@@ -79,6 +80,10 @@ def test_invited_account_automatically_enters_and_routes_one_instance(entrance):
 def test_csrf_host_revocation_and_external_redirect(entrance):
     client, calls, config, _ = entrance
     assert client.post('/', base_url='https://'+HOST, data={}).status_code == 403
+    page = get(client, '/?login=1')
+    csrf = re.search(r'name="csrf" value="([^"]+)"', page.text)[1]
+    assert client.post('/', base_url='https://'+HOST+'/app/', headers={'Origin': 'null'},
+                       data={'csrf': csrf, 'username': 'owner', 'password': 'fixture-password'}).status_code == 403
     assert client.get('/', base_url='https://evil.test').status_code == 400
     assert client.get('/', base_url='http://'+HOST).status_code == 400
     assert post(client, action='activate', username='friend', invitation='https://evil.test/#invite='+TOKEN).status_code == 400

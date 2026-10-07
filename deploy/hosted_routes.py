@@ -32,7 +32,7 @@ location ^~ /app/ {
     client_max_body_size 8k;
     access_log off;
     add_header X-Content-Type-Options nosniff always;
-    add_header Referrer-Policy no-referrer always;
+    add_header Referrer-Policy same-origin always;
 }
 '''
     block = start+'\n'+entry+routes+'\n'+end

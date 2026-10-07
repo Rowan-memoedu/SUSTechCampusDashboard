@@ -93,7 +93,10 @@ def create_app(root, config_path, exchange=backend):
 
     @app.after_request
     def headers(response):
-        response.headers.update({'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+        # Chrome sends Origin: null on navigation POSTs under no-referrer.
+        # same-origin retains the origin needed by our form guard while still
+        # suppressing referrers when leaving this site.
+        response.headers.update({'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin',
             'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY',
             'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"})
         return response
