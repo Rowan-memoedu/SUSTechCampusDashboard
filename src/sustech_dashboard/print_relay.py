@@ -76,6 +76,11 @@ class PrintRelay:
                 online = time.time() - row['at'] < 45
                 agents.append({'id': row['id'], 'name': row['name'], 'online': online,
                                'ready': online and bool(row['ready']), 'error': row['error'] if online else OFFLINE})
+            online = [agent for agent in agents if agent['online']]
+            if not selected and len(online) == 1 and not db.execute(
+                    "SELECT 1 FROM operations WHERE kind IN ('upload','delete') AND state IN ('queued','running','needs_review')").fetchone():
+                selected = online[0]['id']
+                db.execute("INSERT OR REPLACE INTO settings VALUES ('agent',?)", (selected,))
             pending = [dict(id=r['id'], kind=r['kind'], state=r['state'], message=UNCERTAIN)
                        for r in db.execute("SELECT * FROM operations WHERE kind IN ('upload','delete') AND state IN ('queued','running','needs_review')")]
             return {'enabled': True, 'selected': selected, 'agents': agents, 'pending': pending}

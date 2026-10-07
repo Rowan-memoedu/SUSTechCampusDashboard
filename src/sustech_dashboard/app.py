@@ -487,7 +487,12 @@ def create_app(runtime=None) -> Flask:
         result["destination"] = str(DOWNLOAD_ROOT) if not CLOUD else "学校直接保存到浏览器或自己的电脑"
         result['school_direct'] = direct_downloads()
         result['hosted'] = hosted()
+        result['local_open'] = not CLOUD and runtime is not None
         return jsonify(result)
+
+    if not CLOUD and runtime is not None:
+        from .local_files import register_local_files
+        register_local_files(app, local_request, csrf)
 
     @app.post("/api/materials/refresh")
     def refresh_materials():

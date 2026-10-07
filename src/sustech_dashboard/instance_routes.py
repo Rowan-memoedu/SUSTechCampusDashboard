@@ -35,7 +35,7 @@ def register_instance(app, runtime, guard, csrf):
         if not cloud and request.path == "/auth/unlock":
             return None
         if not cloud and not secrets.compare_digest(request.cookies.get(cookie, ""), runtime.token):
-            if request.path == "/":
+            if request.path in {"/", "/connect", "/files"}:
                 return render_template("unlock.html")
             abort(401)
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
@@ -51,7 +51,7 @@ def register_instance(app, runtime, guard, csrf):
                 runtime.active_writes += 1
                 g.campus_write = True
         if not runtime.configured.is_set() and request.endpoint not in {
-                "setup_page", "configure_owner", "instance_status", "settings_page", "static", "check_update", "install_update", "stop_instance", "web_login", "web_logout", "hosted_disconnect", "hosted_password"}:
+                "setup_page", "configure_owner", "instance_status", "settings_page", "static", "check_update", "install_update", "stop_instance", "web_login", "web_logout", "hosted_disconnect", "hosted_password", "connect_page"}:
             if request.path.startswith("/api/"):
                 return jsonify({"error": "请先绑定校园账号" if is_hosted else "请先在本机登录校园账号", "setup_required": True}), 401
             return redirect(request.script_root + "/setup")
@@ -92,6 +92,9 @@ def register_instance(app, runtime, guard, csrf):
         return render_template("setup.html", csrf_token=csrf, api_base=request.script_root,
                                cloud=cloud, hosted=is_hosted, can_remember=os.name == "nt" or is_hosted, configured=runtime.configured.is_set(),
                                credential_error=runtime.credential_error)
+
+    from .pairing import register_pairing
+    register_pairing(app, runtime, guard, csrf)
 
     @app.post("/api/instance/login")
     def configure_owner():

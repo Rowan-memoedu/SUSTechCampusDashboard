@@ -1,7 +1,7 @@
 (async()=>{
-  const params=new URLSearchParams(location.hash.slice(1)),token=params.get('access');
+  const originalHash=location.hash,params=new URLSearchParams(originalHash.slice(1)),token=params.get('access');
   history.replaceState(null,'',location.pathname);
-  if(!token)return;
+  if(!token){if(['/connect','/files'].includes(location.pathname)){try{const r=await fetch('/api/instance',{cache:'no-store'});if(r.ok)location.replace(location.pathname+originalHash);}catch{}}return;}
   const message=document.getElementById('unlock-message');
   try{
     const r=await fetch('/auth/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});

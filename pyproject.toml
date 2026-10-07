@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sustech-campus-dashboard"
-version = "0.3.1"
+version = "0.3.2"
 description = "Private SUSTech dashboard, Blackboard coursework and campus bookings"
 requires-python = ">=3.11"
 dependencies = [

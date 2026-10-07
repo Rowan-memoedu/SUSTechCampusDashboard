@@ -6,6 +6,10 @@
   const jobText={queued:'待下载',running:'进行中',completed:'已完成',partial:'部分失败',failed:'失败',cancelled:'已暂停'};
   function size(n){if(!n)return '大小待核验';return n>=1048576?`${(n/1048576).toFixed(1)} MB`:`${Math.ceil(n/1024)} KB`;}
   function message(text){$('material-message').textContent=text;$('material-message').hidden=!text;}
+  function openLocal(label,kind,key){
+    if(data?.local_open){const b=node('button',label,'secondary');b.onclick=async()=>{b.disabled=true;try{await post('/api/materials/open',{kind,key});}catch(e){message(e.message);}finally{b.disabled=false;}};return b;}
+    const a=node('a',label);a.href='http://127.0.0.1:18765/files#'+new URLSearchParams({kind,...(key?{key}:{})});a.target='_blank';a.rel='noopener noreferrer';return a;
+  }
   async function post(path,payload){
     const response=await campusFetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(payload)});
     const result=await response.json();if(!response.ok)throw Error(result.error||`请求失败 (${response.status})`);return result;
@@ -17,6 +21,7 @@
   }
   function render(){
     if(!data)return;
+    $('material-root-action').replaceChildren(openLocal('打开下载文件夹根目录','root'));
     const agent=data.agent||{}, badge=$('material-agent');badge.textContent=agent.online?'本机直连下载组件在线':data.school_direct?'浏览器从学校直接下载':'本机下载代理离线';badge.className=`pill ${agent.online?'':'unknown'}`;
     $('material-auto').checked=!!data.auto_enabled;
     $('material-download-all').disabled=!(data.items||[]).length||!!data.hosted&&!agent.online;
@@ -63,6 +68,7 @@
         const download=node('button',saved(i.local_status)?'核验并下载':i.local_status==='failed'?'重试下载':'下载');
         download.disabled=['queued','running'].includes(i.local_status)||!!data.hosted&&!agent.online;download.onclick=()=>requestDownload({scope:'file',key:i.key},download);actions.append(download);
         const browser=node('a',data.school_direct?'打开学校下载入口':'浏览器另存');browser.href=apiBase+'/api/attachment?key='+encodeURIComponent(i.key);if(data.school_direct){browser.target='_blank';browser.rel='noopener noreferrer';browser.onclick=()=>message('已打开学校下载入口；请在学校页面登录并查看浏览器下载结果，面板尚未收到本机保存确认。');}else{browser.setAttribute('download',i.file_name);}actions.append(browser);
+        if(saved(i.local_status)&&i.local_path)actions.append(openLocal('打开文件','file',i.key),openLocal('打开所在文件夹','folder',i.key));
         entry.append(main,actions);list.append(entry);
       });details.append(list);courses.append(details);
     });

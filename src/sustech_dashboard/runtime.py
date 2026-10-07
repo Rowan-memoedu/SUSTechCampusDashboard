@@ -48,6 +48,7 @@ class Runtime:
         self.health_token = os.environ.get("SUSTECH_HEALTH_TOKEN", secrets.token_urlsafe(32))
         self.update = UpdateManager()
         self.workers = []
+        self.print_worker = None
         self.credential_error = False
         try:
             if load_owner_credentials():
@@ -73,6 +74,7 @@ class Runtime:
             worker = threading.Thread(target=after_login, args=(fn,), daemon=True)
             self.workers.append(worker)
             worker.start()
+        self.start_print_agent()
         def versions():
             while not self.stop.wait(30):
                 self.update.check()
@@ -81,6 +83,21 @@ class Runtime:
         from .execution import hosted
         if not hosted():
             threading.Thread(target=versions, daemon=True, name="version-check").start()
+
+    def start_print_agent(self):
+        from .execution import mode
+        from .download_agent import CONFIG
+        if mode() != 'local' or not CONFIG.exists():return
+        if self.print_worker and self.print_worker.is_alive():return
+        from .print_agent import run
+        def after_login():
+            while not self.stop.is_set():
+                if self.configured.wait(1):
+                    run(self.stop)
+                    return
+        self.print_worker = threading.Thread(target=after_login, daemon=True, name='campus-print-agent')
+        self.workers.append(self.print_worker)
+        self.print_worker.start()
 
     def begin_install(self):
         from .execution import hosted

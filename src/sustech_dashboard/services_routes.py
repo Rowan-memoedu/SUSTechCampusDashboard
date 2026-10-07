@@ -51,6 +51,24 @@ def register_services(app, guard, csrf, public_error):
         if not cloud_print():raise ValueError('本机模式无需配对打印电脑')
         return relay().pair((request.get_json() or {}).get('agent_id'))
 
+    @app.get('/api/printing/connection')
+    @api
+    def print_connection():
+        # Authenticated setup probe: never return a campus identity or credential.
+        from .execution import hosted
+        if not hosted():raise ValueError('此入口仅用于连接自己的托管空间')
+        import hashlib, hmac
+        from .hosted import Space
+        sid = request.headers.get('X-Campus-Sid', '')
+        if not sid or len(sid) > 128:raise ValueError('请先在本机登录校园账号')
+        space = Space()
+        expected = hmac.new(space.key_bytes(), sid.strip().encode(), hashlib.sha256).hexdigest()
+        with space.db() as db:
+            identity = space.get(db, 'identity', '')
+        if not identity or not secrets.compare_digest(identity, expected):
+            raise ValueError('本机校园账号与此托管空间不一致，未配对')
+        return {'username': space.web_config()['username'], 'same_identity': True}
+
     @app.get('/api/printing/operations/<jid>')
     @api
     def print_operation(jid):

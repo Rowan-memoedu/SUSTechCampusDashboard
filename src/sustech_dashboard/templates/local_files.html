@@ -1,0 +1,4 @@
+{% extends 'base.html' %}
+{% block header %}<h1>打开本机下载</h1>{% endblock %}
+{% block content %}<section><p>仅打开当前电脑、当前账号已有保存记录的附件。浏览器另存的文件请从浏览器下载列表打开。</p><button id="local-file-open" type="button">打开下载根目录</button><p id="local-file-message" role="status"></p></section>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='local_files.js') }}"></script>{% endblock %}

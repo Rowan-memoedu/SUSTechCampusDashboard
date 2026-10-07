@@ -59,6 +59,17 @@ def test_only_selected_computer_can_claim_and_fetch(relay):
     assert relay.operation(job['id'])['state'] == 'confirmed'
 
 
+def test_single_online_computer_is_selected_without_switching_owner(tmp_path):
+    store=PrintRelay(tmp_path/'single')
+    heartbeat(store)
+    assert store.status()['selected']==A
+    heartbeat(store,B)
+    assert store.status()['selected']==A
+    ambiguous=PrintRelay(tmp_path/'multiple')
+    heartbeat(ambiguous,A);heartbeat(ambiguous,B)
+    assert ambiguous.status()['selected'] is None
+
+
 def test_offline_never_returns_empty_queue_or_accepts_upload(relay, monkeypatch):
     original = print_relay.time.time()
     monkeypatch.setattr(print_relay.time, 'time', lambda: original + 46)
