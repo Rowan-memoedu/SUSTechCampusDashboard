@@ -5,6 +5,7 @@
 ## 已锁定的试用边界
 
 - 首批上限 5 人，独立 Linux 用户、进程、私密目录、凭据与会话；使用现有 HTTPS 站点的 `/app/` 入口和 `/spaces/<随机ID>/` 空间。
+- 用户只需保存 `/app/`：已有面板账号直接登录，首次使用在同页用邀请设置面板账号和密码；成功后自动进入自己的面板。个人路径是内部路由，无需用户自行寻找或保存。
 - 共享元数据数据库上限 256 MiB；每实例私密状态上限 128 MiB。写操作账本不自动删除；配额满时暂停新增并提示。
 - 旧元数据最多 2 版且不超过 7 天，脱敏服务日志 14 天/总计 32 MiB；验证完成的恢复备份保留 7 天，由 `campus-hosted-retention.timer` 每小时检查，并在升级时检查。清理只匹配本项目指定恢复目录、任务前缀与 verified 标记，保留未验证备份和个人活动数据。退出先撤销会话、任务和共享引用，个人材料删除另行处理。
 - 每实例 CPU 50%、MemoryHigh 256 MiB、MemoryMax 512 MiB、TasksMax 64；共享服务内存 192 MiB、CPU 30%。这些是限制，不是五个高负载用户同时使用的容量承诺。
@@ -28,6 +29,19 @@
 
 ## 验收证据
 
+### 公共入口修复（2026-10-07）
+
+初次部署的 `/app/` 只有说明，没有可用登录流程；原公共页截图只能证明说明页呈现，不能证明用户能从公共入口进入。现已替换为统一登录与邀请开通页面。
+
+- `campus-entry` 只保存账号到实例的路由，不存面板密码或 CAS；每次将密码交给唯一登记实例验证，个人 Cookie 仍由个人实例签发。已有拥有者账号和密码继续有效。
+- 真实 HTTPS 验证：公共页登录 → 拥有者面板、再次访问公共入口自动进入、退出回到统一登录、过期会话不循环跳转、CSRF 与匿名 API 拒绝均通过；学校写入为 0。
+- 独立未绑定 fixture 经真实个人应用的邀请、登录与会话接口完成自动进入；邀请重放拒绝、账号定向、撤销、响应丢失后的账号恢复均有回归覆盖。没有激活五个待发的朋友空间。
+- 隔离无头 Chrome 验证桌面登录、手机开通、邀请自动填入与地址清理；脚本错误 0、手机横向溢出 0。证据位于 `D:\Artifacts\SUSTechCampusDashboard\entry-fix\`。
+- 修复回归：Windows 全量 158 项通过、1 项平台跳过；Linux 全量 157 项通过、2 项平台跳过，包含真实 nginx 上传回归。
+- 本次只更新公共入口服务和 nginx 登录跳转，个人业务实例及 `0.3.1` 签名客户端包保持。nginx 恢复点：`/var/lib/campus-hosted-recovery/1791365628238347009/nginx.conf`。
+
+### 原业务与部署验收
+
 - 最终 Windows 全量 pytest：149 项通过、1 项平台跳过；Linux：148 项通过、2 项平台跳过。包含真实 nginx 上传、未登录及超限拦截，以及只删除已验证过期备份、保留当前/未验证/无关目录的恢复保留测试。
 - 两个真实 Linux 服务使用独立用户和目录；验证邀请重放、Cookie 改名串用、伪造代理头、跨目录读取、下载任务串用、打印队列隔离、停止 A 后 B 正常、重启会话保持、改密码撤销。
 - 10 个独立进程访问相同已验证 fixture：1 轮刷新、1 份公共对象、10 条独立引用。三分页 fixture 计 3 次源请求，不伪称 1 次 HTTP 请求。个人权限/状态请求与公共刷新分开计数；CAS 登录内部请求不计入 Blackboard REST 计数。
@@ -43,12 +57,13 @@
 
 ## 运维入口
 
-维护命令只在服务器本机以 root 执行。当前 `<release>` 为 `/opt/sustech-campus-hosted/releases/0.3.1`；命令的 `PYTHONPATH` 指向该目录的 `src`。Python 为 `/opt/sustech-campus-hosted/venv/bin/python`。
+维护命令只在服务器本机以 root 执行。个人业务运行包仍为 `/opt/sustech-campus-hosted/releases/0.3.1`；包含统一入口修复的维护脚本和入口服务位于 `/opt/sustech-campus-hosted/releases/entry-20261007`，维护命令及 `PYTHONPATH` 使用后者的 `deploy` 和 `src`。Python 为 `/opt/sustech-campus-hosted/venv/bin/python`。
 
 - 开通：`deploy/hosted_admin.py create --host 124.221.144.155`。超过 5 个活动空间拒绝新增。命令只输出空间与私密邀请文件路径。
 - 未使用邀请续期：`deploy/hosted_admin.py invite <space-id>`；激活后不能重放或重新邀请覆盖账号。
 - 撤销：`deploy/hosted_admin.py revoke <space-id>`，随后运行 `deploy/hosted_routes.py` 更新登记路由。个人数据保留，其他人的共享引用不受影响。
-- 更新登记路由：`deploy/hosted_routes.py`，保存旧 nginx 配置、校验后热加载；失败恢复原配置。拥有者 `/campus/` 路由保留。
+- 更新登记路由：`deploy/hosted_routes.py`，同步公共入口允许的实例、保存旧 nginx 配置、校验后热加载；失败恢复原配置。拥有者 `/campus/` 业务代理保留，未登录统一返回 `/app/?login=1`。
+- 统一入口：`deploy/entry_admin.py --program <source-release>` 安装；不带参数仅刷新登记。运行用户 `campus-entry`，配置 `/etc/campus-entry/routes.json`，路由账号目录 `/var/lib/campus-entry`。入口进程不能读取个人目录和密封凭据；入口账号路由与原个人目录需要一同保留以便恢复。
 - 托管升级：`deploy/hosted_upgrade.py --program <release>`。一致性备份包含实例、共享数据库、配置与 systemd 密封凭据；排除附件/打印文件本体。不同数据格式的降级不自动执行。
 - 诊断：`systemctl status campus-metadata 'campus-space@<id>'`；日志使用 `journalctl --namespace=campus-hosted`。不要输出私密数据库正文或凭据。
 - 保留检查：`systemctl status campus-hosted-retention.timer`；手动检查可运行 `deploy/hosted_upgrade.py --collect-only`，不会操作活动数据目录。

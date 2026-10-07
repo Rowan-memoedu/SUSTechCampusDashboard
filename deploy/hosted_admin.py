@@ -225,10 +225,10 @@ def create(host):
         records[sid] = {'port': port, 'host': host, 'enabled': True, 'created': time.time()}
         save(CONFIG/'routes'/(sid+'.conf'), render_nginx(sid, port, host), 0o644)
         # Invitation stays private and is deliberately never printed or published.
-        save(CONFIG/'private'/(sid+'.invitation'), 'https://'+host+'/spaces/'+sid+'/invite#invite='+token)
+        save(CONFIG/'private'/(sid+'.invitation'), 'https://'+host+'/app/?login=1#invite='+token)
         (CONFIG/'private').chmod(0o700)
         run('systemctl', 'enable', '--now', 'campus-space@'+sid+'.service')
-        return {'space_id': sid, 'url': 'https://'+host+'/spaces/'+sid+'/', 'invitation_file': str(CONFIG/'private'/(sid+'.invitation'))}
+        return {'space_id': sid, 'url': 'https://'+host+'/app/', 'invitation_file': str(CONFIG/'private'/(sid+'.invitation'))}
 
 
 def revoke(sid):
@@ -260,7 +260,7 @@ def renew_invitation(sid):
             raise ValueError('Space is not enabled')
         token = Space(ROOT/sid).invite()
         path = CONFIG/'private'/(sid+'.invitation')
-        save(path, 'https://'+record['host']+'/spaces/'+sid+'/invite#invite='+token)
+        save(path, 'https://'+record['host']+'/app/?login=1#invite='+token)
         return {'space_id': sid, 'invitation_file': str(path), 'expires_in_hours': 24}
 
 
@@ -288,3 +288,6 @@ if __name__ == '__main__':
     else:
         with registry() as records:
             print(json.dumps(records))
+    if args.command in {'create', 'invite', 'revoke'} and Path('/etc/campus-entry/routes.json').exists():
+        from entry_admin import refresh
+        refresh()

@@ -37,10 +37,17 @@ def verify(ids):
         session.headers['Origin'] = origin
         password = secrets.token_urlsafe(24)
         assert session.get(base+'/api/instance', timeout=10).status_code == 401
-        form = csrf(session.get(base+'/invite', timeout=10))
-        assert session.post(base+'/invite', data={'csrf': form, 'invitation': token, 'password': password}, allow_redirects=False, timeout=10).status_code == 303
-        assert session.post(base+'/invite', data={'csrf': form, 'invitation': token, 'password': password}, allow_redirects=False, timeout=10).status_code == 400
-        assert session.post(base+'/auth/login', data={'csrf': form, 'username': 'member', 'password': password}, allow_redirects=False, timeout=10).status_code == 303
+        entry = origin+'/app/'
+        form = csrf(session.get(entry+'?login=1', timeout=10))
+        name = 'fixture-'+sid
+        activated = session.post(entry, data={'csrf': form, 'action': 'activate', 'username': name,
+            'invitation': token, 'password': password, 'remember': 'on'}, allow_redirects=False, timeout=30)
+        assert activated.status_code == 303 and activated.headers['Location'] == '/spaces/'+sid+'/'
+        assert session.post(entry, data={'csrf': form, 'action': 'activate', 'username': name,
+            'invitation': token, 'password': password}, allow_redirects=False, timeout=30).status_code == 409
+        assert session.post(entry, data={'csrf': form, 'username': name, 'password': password},
+                            allow_redirects=False, timeout=30).status_code == 303
+        form = csrf(session.get(base+'/', timeout=10))
         state = session.get(base+'/api/instance', timeout=10)
         assert state.status_code == 200 and state.json()['configured'] is False
         assert session.post(base+'/api/instance/updates/install', json={}, headers={'X-CSRF-Token': form}, timeout=10).status_code == 403
@@ -96,7 +103,7 @@ def verify(ids):
                       'cross_directory_denied': True, 'cross_download_task_denied': True,
                       'print_queues_isolated': True, 'sessions_survive_restart': True,
                       'stop_one_other_healthy': True, 'password_change_revokes_sessions': True,
-                      'campus_requests': 0}))
+                      'unified_activation_and_login': True, 'campus_requests': 0}))
 
 
 if __name__ == '__main__':

@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import time
 
-from hosted_admin import CONFIG, REGISTRY, save
+from hosted_admin import CONFIG, REGISTRY, save, render_nginx
 import json
 
 
@@ -13,20 +13,26 @@ def install():
     old = path.read_text()
     start, end = '# BEGIN Campus hosted spaces', '# END Campus hosted spaces'
     records = json.loads(REGISTRY.read_text())
+    for sid, value in records.items():
+        if value['enabled']:
+            save(CONFIG/'routes'/(sid+'.conf'), render_nginx(sid, value['port'], value['host']), 0o644)
     routes = '\n'.join((CONFIG/'routes'/(sid+'.conf')).read_text() for sid, value in records.items() if value['enabled'])
-    public = Path('/var/www/campus-app')
-    public.mkdir(parents=True, exist_ok=True)
-    save(public/'index.html', '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>南科大校园面板</title><style>body{font:18px/1.7 system-ui;max-width:760px;margin:8vh auto;padding:24px;color:#183234}section{padding:24px;background:#f0f6f5;border-radius:16px}a{color:#006b62}</style><h1>南科大校园面板</h1><p>课程、作业、资料和校园服务。</p><section><h2>受邀托管试用</h2><p>使用维护者给你的独立空间邀请链接，设置面板密码后绑定自己的校园账号。已有空间请使用保存的个人空间地址登录。</p><p>你的个人查询由服务器上的独立实例执行；可共享元数据在权限核验后复用。运营者在技术上能够接触运行中的凭据和个人数据。</p><p>附件直接从学校下载到你的浏览器或本机，面板不保存或转发附件。学校登录状态与面板登录分别管理。</p><p>首批最多 5 人。校园打印等功能仍需要自己的校园网或 VPN 执行设备。</p></section><h2>本机运行</h2><p>现有独立客户端可在自己的设备运行。公网入口与本机页面的连接、迁移引导将在后续阶段提供。</p></html>''', 0o644)
+    from entry_admin import refresh
+    refresh()
     entry = '''location = /app { return 302 /app/; }
 location ^~ /app/ {
     auth_basic off;
-    alias /var/www/campus-app/;
-    index index.html;
-    autoindex off;
+    proxy_pass http://127.0.0.1:18801/;
+    proxy_set_header Host 124.221.144.155;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Prefix /app;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 45s;
+    client_max_body_size 8k;
     access_log off;
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy no-referrer always;
-    add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'" always;
 }
 '''
     block = start+'\n'+entry+routes+'\n'+end
@@ -39,6 +45,14 @@ location ^~ /app/ {
         if old.count(anchor) != 1 or 'listen 443 ssl' not in old[:old.index(anchor)]:
             raise RuntimeError('Existing HTTPS campus route must be verified before registration')
         updated = old.replace(anchor, block+'\n'+anchor, 1)
+    # Keep the existing owner proxy and its upload limits; only converge login.
+    owner_start, owner_end = '# BEGIN SUSTech campus dashboard', '# END SUSTech campus dashboard'
+    before, rest = updated.split(owner_start, 1)
+    owner, after = rest.split(owner_end, 1)
+    if 'location = /campus/auth/login' not in owner:
+        owner = '\nlocation = /campus/auth/login { return 302 /app/?login=1; }\n' + owner
+    owner = owner.replace('/campus/auth/login"', '/app/?login=1"').replace('return 302 /campus/auth/login;', 'return 302 /app/?login=1;')
+    updated = before + owner_start + owner + owner_end + after
     recovery = Path('/var/lib/campus-hosted-recovery')/str(time.time_ns())
     recovery.mkdir(parents=True, mode=0o700)
     (recovery/'nginx.conf').write_text(old)
