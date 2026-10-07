@@ -58,7 +58,7 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' booking
 
 Windows 的 `start` / `serve` 命令启动本机客户端，`open-server` 打开已配对服务器。现有 Windows 登录任务 `SUSTechCampusDashboard` 继续启动个人服务器的下载代理。本机数据位于 `D:\AppData\SUSTechCampusDashboard`，依赖环境在 `D:\Caches\SUSTechCampusDashboard-venv`。凭据使用 Windows DPAPI，仅在当前用户进程内解密。
 
-拥有者实例沿用账户 `sustechmon`、数据 `/var/lib/sustech-room-monitor/dashboard` 和 `/opt/sustech-campus-client/campus-client` 启动器，由原有签名更新机制选择运行包。`sustech-campus-dashboard.service` 经 nginx 私人 HTTPS 路由及独立密码保护，CAS 使用 systemd 加密凭据。0.3.0 的云端附件入口只提供学校定位信息；实际安装版本和验收见交付记录。旧恢复环境保留，监控服务维持停用。
+原拥有者实例曾使用 `sustechmon`、`/var/lib/sustech-room-monitor/dashboard` 和签名客户端启动器。2026-10-07 用户要求从零重建后，该服务及本机下载组件已停用，旧记录进入私密恢复区；`/campus/api/` 返回 410。当前从统一公共入口通过新邀请创建独立托管空间，尚未开通的新空间不继承旧会话、凭据、快照或下载基线。实际状态与验收见交付记录；旧讨论间监控继续停用。
 
 运行快照、凭据、基线、下载资料、数据库及日志均不进入 Git。上游固定提交 `acd20323af6d3bc91c3e89974283d39d85109678`。
 

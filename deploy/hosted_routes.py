@@ -8,6 +8,25 @@ from hosted_admin import CONFIG, REGISTRY, save, render_nginx
 import json
 
 
+def owner_route(owner, enabled):
+    if not enabled:
+        return '''
+location = /campus { return 302 /app/?login=1; }
+location ^~ /campus/ {
+    auth_basic off;
+    access_log off;
+    default_type application/json;
+    if ($request_uri ~ "^/campus/api/") {
+        return 410 '{"error":"旧个人实例已断开，请从公共入口重新开通","login_url":"/app/?login=1"}';
+    }
+    return 302 /app/?login=1;
+}
+'''
+    if 'location = /campus/auth/login' not in owner:
+        owner = '\nlocation = /campus/auth/login { return 302 /app/?login=1; }\n' + owner
+    return owner.replace('/campus/auth/login"', '/app/?login=1"').replace('return 302 /campus/auth/login;', 'return 302 /app/?login=1;')
+
+
 def install():
     path = Path('/etc/nginx/sites-available/graspmemoedu')
     old = path.read_text()
@@ -17,8 +36,9 @@ def install():
         if value['enabled']:
             save(CONFIG/'routes'/(sid+'.conf'), render_nginx(sid, value['port'], value['host']), 0o644)
     routes = '\n'.join((CONFIG/'routes'/(sid+'.conf')).read_text() for sid, value in records.items() if value['enabled'])
-    from entry_admin import refresh
+    from entry_admin import refresh, ENTRY_CONFIG
     refresh()
+    owner_enabled = any(r['prefix'] == '/campus' for r in json.loads(ENTRY_CONFIG.read_text())['routes'])
     entry = '''location = /app { return 302 /app/; }
 location ^~ /app/ {
     auth_basic off;
@@ -49,9 +69,7 @@ location ^~ /app/ {
     owner_start, owner_end = '# BEGIN SUSTech campus dashboard', '# END SUSTech campus dashboard'
     before, rest = updated.split(owner_start, 1)
     owner, after = rest.split(owner_end, 1)
-    if 'location = /campus/auth/login' not in owner:
-        owner = '\nlocation = /campus/auth/login { return 302 /app/?login=1; }\n' + owner
-    owner = owner.replace('/campus/auth/login"', '/app/?login=1"').replace('return 302 /campus/auth/login;', 'return 302 /app/?login=1;')
+    owner = owner_route(owner, owner_enabled)
     updated = before + owner_start + owner + owner_end + after
     recovery = Path('/var/lib/campus-hosted-recovery')/str(time.time_ns())
     recovery.mkdir(parents=True, mode=0o700)
@@ -65,7 +83,8 @@ location ^~ /app/ {
         subprocess.run(['nginx', '-t'], check=True)
         subprocess.run(['systemctl', 'reload', 'nginx'], check=True)
         raise
-    print(json.dumps({'registered_spaces': sum(r['enabled'] for r in records.values()), 'recovery': str(recovery), 'owner_route_preserved': True}))
+    print(json.dumps({'registered_spaces': sum(r['enabled'] for r in records.values()), 'recovery': str(recovery),
+                      'owner_route_preserved': owner_enabled, 'owner_retired': not owner_enabled}))
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 # 托管第一阶段：实现与验收
 
-日期：2026-10-07。版本：0.3.1。当前状态：第一阶段 P0–P4 已开发、部署并通过验收；公共入口为 `https://124.221.144.155/app/`，5 个未绑定试用空间已就绪，尚未发送邀请。拥有者 `/campus/` 已升级且原会话、58 项基线与写操作记录保持。本文为第一阶段现役记录，原设计保留在 `WEB-HOSTED-PLAN.md`。
+日期：2026-10-07。版本：0.3.1。第一阶段 P0–P4 已开发并部署，公共入口为 `https://124.221.144.155/app/`。当前按用户要求完成从零重建验收：原个人实例、本机组件、旧试用空间及本次真实测试空间均已撤销；仅有 1 个全新、未开通空间等待用户自行设置账号密码和绑定。旧记录已隔离到私密恢复区，没有带入新空间。本文为现役记录，原设计保留在 `WEB-HOSTED-PLAN.md`。
 
 ## 已锁定的试用边界
 
@@ -33,7 +33,7 @@
 
 初次部署的 `/app/` 只有说明，没有可用登录流程；原公共页截图只能证明说明页呈现，不能证明用户能从公共入口进入。现已替换为统一登录与邀请开通页面。
 
-- `campus-entry` 只保存账号到实例的路由，不存面板密码或 CAS；每次将密码交给唯一登记实例验证，个人 Cookie 仍由个人实例签发。已有拥有者账号和密码继续有效。
+- `campus-entry` 只保存账号到实例的路由，不存面板密码或 CAS；每次将密码交给唯一登记实例验证，个人 Cookie 仍由个人实例签发。在入口修复阶段沿用拥有者旧凭据；随后用户要求从零重建时已撤销旧账号。
 - 真实 HTTPS 验证：公共页登录 → 拥有者面板、再次访问公共入口自动进入、退出回到统一登录、过期会话不循环跳转、CSRF 与匿名 API 拒绝均通过；学校写入为 0。
 - 独立未绑定 fixture 经真实个人应用的邀请、登录与会话接口完成自动进入；邀请重放拒绝、账号定向、撤销、响应丢失后的账号恢复均有回归覆盖。没有激活五个待发的朋友空间。
 - 隔离无头 Chrome 验证桌面登录、手机开通、邀请自动填入与地址清理；脚本错误 0、手机横向溢出 0。证据位于 `D:\Artifacts\SUSTechCampusDashboard\entry-fix\`。
@@ -41,6 +41,18 @@
 - 本次只更新公共入口服务和 nginx 登录跳转，个人业务实例及 `0.3.1` 签名客户端包保持。nginx 恢复点：`/var/lib/campus-hosted-recovery/1791365628238347009/nginx.conf`。
 
 浏览器原账号登录补验：HTTP 验收脚本会主动设置 Origin，因此未发现 Chrome 原生表单受 `Referrer-Policy: no-referrer` 影响后发送 `Origin: null`，被严格来源校验拒绝的问题。入口应用和 nginx 现均使用 `same-origin`；继续拒绝 null/异站 Origin，保留 CSRF 校验，未重设用户名或密码。真实无头 Google Chrome 已使用原有面板凭据完成表单提交，收到 303 并进入 `/campus/` 的 200 页面；浏览器来源恢复为本站 HTTPS。
+
+### 用户要求的从零重建验收（2026-10-07）
+
+执行顺序为：先通过全部检查 → 撤销并隔离旧状态 → 用新邀请创建测试账号并绑定真实校园账号 → 验证读取和直连下载 → 断开并撤销测试空间、清空活动状态 → 创建另一份未使用邀请供用户自己操作。
+
+- 重置前 Windows 全量 161 项通过、1 项平台跳过；Linux 全量 160 项通过、2 项平台跳过，包括真实 nginx 上传回归。
+- 新增 `deploy/verify_entry_flow.cjs` 用真实无头 Google Chrome 验证邀请开通、初始未绑定、手机布局、绑定、改密撤销旧会话、重新登录、重开浏览器、退出及最终重登录。先在禁用外网的独立 fixture 中验证错误 CAS、断开与密文清除，再使用真实校园账号。脚本错误和意外服务器错误均为 0，原生表单 Origin 全部有效。
+- 真实新空间首次同步读取 5 门课程、8 项作业、58 个附件；各来源同步错误为 0。学校直连下载 213,581 字节，SHA-256 为 `3d044d8182f97c999632498d67643cc4259d72f537fba9b923bd726f4688c6fd`。学校写操作为 0；作业、预约和打印仍只用既有 fixture 回归覆盖。
+- 真实服务重启后浏览器会话及加密 CAS 恢复成功；随后在浏览器点击断开学校账号并退出，验证未配置和 401，再从维护者 CLI 停用并隔离测试实例。旧账号、测试账号及旧 Cookie 均无法访问活动实例。
+- 最终只保留 1 个全新空间：网站账号、会话、CAS、校园身份、快照、附件基线、共享引用及对象均为 0。新邀请未使用，24 小时有效；邀请链接只存用户私密文件，不进入 Git 或验收日志。
+- 原本机计划任务已停用，原活动数据目录不存在；实际已下载文件保留。归档时出现 Windows 文件占用，取得并核验恢复副本后等待占用释放，再用原生目录移动完成隔离，没有丢弃记录。
+- 原数据恢复区：`D:\Quarantine\SUSTechCampusDashboard-reset-20261007` 和服务器 `/var/lib/campus-reset-recovery/initial-20261007`；本次测试服务器数据位于 `/var/lib/campus-reset-recovery/trial-20261007`。这些是不可用于活动登录的私密恢复材料，没有永久销毁。脱敏验收记录在 `D:\Artifacts\SUSTechCampusDashboard\fresh-flow`。
 
 ### 原业务与部署验收
 
@@ -66,6 +78,7 @@
 - 撤销：`deploy/hosted_admin.py revoke <space-id>`，随后运行 `deploy/hosted_routes.py` 更新登记路由。个人数据保留，其他人的共享引用不受影响。
 - 更新登记路由：`deploy/hosted_routes.py`，同步公共入口允许的实例、保存旧 nginx 配置、校验后热加载；失败恢复原配置。拥有者 `/campus/` 业务代理保留，未登录统一返回 `/app/?login=1`。
 - 统一入口：`deploy/entry_admin.py --program <source-release>` 安装；不带参数仅刷新登记。运行用户 `campus-entry`，配置 `/etc/campus-entry/routes.json`，路由账号目录 `/var/lib/campus-entry`。入口进程不能读取个人目录和密封凭据；入口账号路由与原个人目录需要一同保留以便恢复。
+- 用户明确要求整体重建时，维护者可运行 `deploy/retire_trial.py --initial --recovery /var/lib/campus-reset-recovery/<new-name>`。此命令停用旧个人及所有登记实例，核验恢复副本、隔离活动数据和凭据、清空路由与共享引用，再重建空服务目录；不能当成常规更新命令运行。退役的 `/campus/api/` 返回 410，公共入口仍可用。
 - 托管升级：`deploy/hosted_upgrade.py --program <release>`。一致性备份包含实例、共享数据库、配置与 systemd 密封凭据；排除附件/打印文件本体。不同数据格式的降级不自动执行。
 - 诊断：`systemctl status campus-metadata 'campus-space@<id>'`；日志使用 `journalctl --namespace=campus-hosted`。不要输出私密数据库正文或凭据。
 - 保留检查：`systemctl status campus-hosted-retention.timer`；手动检查可运行 `deploy/hosted_upgrade.py --collect-only`，不会操作活动数据目录。

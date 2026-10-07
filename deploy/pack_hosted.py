@@ -12,7 +12,7 @@ def pack(output):
     files = []
     for folder in ('src', 'deploy', 'tests', 'docs'):
         files.extend(p for p in (root/folder).rglob('*') if p.is_file() and
-                     p.suffix in {'.py', '.html', '.js', '.css', '.md', '.json', '.conf', '.service', '.ps1'} and '__pycache__' not in p.parts)
+                     p.suffix in {'.py', '.html', '.js', '.cjs', '.css', '.md', '.json', '.conf', '.service', '.ps1'} and '__pycache__' not in p.parts)
     files.extend(root/p for p in ('pyproject.toml', 'README.md', 'CLIENT-README.md', 'UPDATING.md', 'THIRD-PARTY-NOTICES.md', 'requirements-build.txt'))
     manifest = {}
     with tarfile.open(output, 'w:gz') as archive:

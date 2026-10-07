@@ -15,9 +15,10 @@ ENTRY_CONFIG = Path('/etc/campus-entry/routes.json')
 
 
 def refresh():
-    owner = json.loads(Path('/etc/credstore/sustech-campus-web.json').read_text())
+    owner_path = Path('/etc/credstore/sustech-campus-web.json')
+    owner = json.loads(owner_path.read_text()) if owner_path.exists() else None
     records = json.loads(REGISTRY.read_text())
-    routes = [{'prefix': '/campus', 'port': 18771, 'username': owner['username']}]
+    routes = [{'prefix': '/campus', 'port': 18771, 'username': owner['username']}] if owner else []
     for sid, record in records.items():
         if not record['enabled']:
             continue
@@ -31,7 +32,7 @@ def refresh():
                 save(private, 'https://'+record['host']+'/app/?login=1#invite='+token)
         routes.append({'prefix': '/spaces/'+sid, 'port': record['port'], 'username': 'member',
                        'invitation': invitation})
-    save(ENTRY_CONFIG, {'host': '124.221.144.155', 'owner_name': owner['username'], 'routes': routes}, 0o640)
+    save(ENTRY_CONFIG, {'host': '124.221.144.155', 'owner_name': owner['username'] if owner else '', 'routes': routes}, 0o640)
     ENTRY_CONFIG.parent.chmod(0o750)
     shutil.chown(ENTRY_CONFIG.parent, group='campus-entry')
     shutil.chown(ENTRY_CONFIG, group='campus-entry')
