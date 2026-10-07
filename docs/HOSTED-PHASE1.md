@@ -82,7 +82,7 @@
 
 ## 运维入口
 
-维护命令只在服务器本机以 root 执行。个人业务运行包仍为 `/opt/sustech-campus-hosted/releases/0.3.1`；包含统一入口修复的维护脚本和入口服务位于 `/opt/sustech-campus-hosted/releases/entry-20261007`，维护命令及 `PYTHONPATH` 使用后者的 `deploy` 和 `src`。Python 为 `/opt/sustech-campus-hosted/venv/bin/python`。
+维护命令只在服务器本机以 root 执行。当前个人业务、共享元数据与维护脚本使用 `/opt/sustech-campus-hosted/releases/0.3.2` 的 `deploy` 和 `src`；统一入口服务保留在 `/opt/sustech-campus-hosted/releases/entry-20261007`。Python 为 `/opt/sustech-campus-hosted/venv/bin/python`。
 
 - 开通：`deploy/hosted_admin.py create --host 124.221.144.155`。超过 5 个活动空间拒绝新增。命令只输出空间与私密邀请文件路径。
 - 未使用邀请续期：`deploy/hosted_admin.py invite <space-id>`；激活后不能重放或重新邀请覆盖账号。
