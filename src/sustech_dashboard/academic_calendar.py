@@ -13,6 +13,35 @@ CACHE_ROOT = DATA_ROOT / "calendar-cache"
 WEEKDAYS = {"Monday": "周一", "Tuesday": "周二", "Wednesday": "周三",
             "Thursday": "周四", "Friday": "周五", "Saturday": "周六", "Sunday": "周日"}
 _calendar_failures = {}
+_scope_cache = None
+
+
+def semester_scope(semester=None):
+    """Use TIS's term identity and the calendar's registration/exam boundaries."""
+    global _scope_cache
+    today = datetime.now(CHINA_TZ).date()
+    if semester is None and _scope_cache and _scope_cache[0] == today and time.monotonic() - _scope_cache[1] < 300:
+        return _scope_cache[2]
+    if semester is None:
+        from sustech_survival.tis.schedule import current_semester
+        semester = current_semester()
+    years = re.findall(r'20\d{2}', str(semester.get('XN', '')))
+    season = str(semester.get('XQ', ''))
+    if len(years) != 2 or season not in {'1', '2', '3'}:
+        raise RuntimeError('当前学期标识无法与校历匹配')
+    calendar = load_recent_calendar(int(years[0] if season == '1' else years[1]))
+    term = next((t for t in (calendar.fall, calendar.spring, calendar.summer)
+                 if t is not None and t.xn == semester['XN'] and t.xq == season), None)
+    if term is None:
+        raise RuntimeError('校历尚未包含当前学期，暂不读取其他学期课程')
+    previous = calendar.spring if season in {'1', '3'} else load_recent_calendar(int(years[0])).fall
+    # Membership may be created during the vacation before this term starts.
+    # Its academic term must still match; a previous-term membership is excluded.
+    enrollment_start = previous.final_end + timedelta(days=1) if previous is not None else term.sign_in
+    result = {'semester': dict(semester), 'start': min(term.sign_in, term.teaching_start),
+              'enrollment_start': enrollment_start, 'end': term.final_end}
+    _scope_cache = (today, time.monotonic(), result)
+    return result
 
 
 def load_recent_calendar(year):

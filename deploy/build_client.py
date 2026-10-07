@@ -31,7 +31,7 @@ def main():
                "--collect-submodules", "securesystemslib", "--collect-data", "certifi",
                "--exclude-module", "sustech_dashboard.monitor_remote", "--exclude-module", "sustech_dashboard.monitor_cli"]
     if os.name == "nt":
-        command += ["--hide-console", "hide-early"]
+        command += ["--noconsole"]
     command += [str(repo / "deploy/freeze_entry.py")]
     env = dict(os.environ, PYINSTALLER_CONFIG_DIR=str(args.work / "cache"))
     subprocess.run(command, check=True, env=env)

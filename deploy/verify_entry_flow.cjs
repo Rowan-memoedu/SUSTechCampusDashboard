@@ -41,7 +41,7 @@ process.stdin.on('end',async()=>{
    report.invalid_cas_denied=true;
   }
   await page.locator('[name=sid]').fill(c.sid);await page.locator('[name=password]').fill(c.casPassword);
-  await page.locator('[name=course_cutoff]').fill('2026-09-01');
+  if(await page.locator('[name=course_cutoff]').count())throw Error('Obsolete semester date input');
   await page.locator('[name=consent]').check();await page.locator('[name=remember]').check();
   const binding=page.waitForResponse(r=>r.url().endsWith('/api/instance/login')&&r.request().method()==='POST',{timeout:120000});
   await page.getByRole('button',{name:'验证账号并开始同步'}).click();

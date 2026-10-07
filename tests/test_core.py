@@ -12,6 +12,14 @@ from sustech_dashboard.provider import Blackboard, term_matches
 from sustech_dashboard.dpapi_store import protect_password, unprotect_password
 
 
+@pytest.fixture(autouse=True)
+def calendar_scope(monkeypatch):
+    from sustech_dashboard import provider
+    monkeypatch.setattr(provider, 'semester_scope', lambda semester=None: {
+        'semester': semester or {'XN': '2026-2027', 'XQ': '1'},
+        'start': date(2026, 9, 4), 'enrollment_start': date(2026, 6, 19), 'end': date(2027, 1, 8)})
+
+
 class FakeAttachments:
     def __init__(self):
         self.items = [{"content_id": "_item_1", "id": "_old_1", "file_name": "课件.pdf"}]
@@ -59,14 +67,14 @@ def test_corrupt_baseline_or_existing_target_never_triggers_overwrite(tmp_path):
     state.unlink()
     sync_attachments(fake, tmp_path / "download", state)
     fake.items.append({"content_id": "_item_2", "id": "_new_1", "file_name": "资料.pdf"})
-    from sustech_dashboard.core import unique_name
+    from sustech_dashboard.core import download_name
 
     target_dir = tmp_path / "download" / "数学_一班"
     target_dir.mkdir(parents=True)
-    target = target_dir / unique_name("资料.pdf", "_course_1/_item_2/_new_1")
+    target = target_dir / download_name("资料.pdf")
     target.write_bytes(b"user file")
     result = sync_attachments(fake, tmp_path / "download", state)
-    assert result["downloaded"] == 0 and result["failed"]
+    assert result["downloaded"] == 1 and not result["failed"]
     assert target.read_bytes() == b"user file"
 
 
@@ -90,7 +98,7 @@ def test_term_is_checked_against_live_semester():
     assert not term_matches({"name": "2026 Spring"}, semester, date(2026, 9, 29))
 
 
-def test_course_list_excludes_enrollments_before_september_2026(monkeypatch):
+def test_course_list_uses_term_identity_not_enrollment_date(monkeypatch):
     from sustech_survival.tis import schedule
 
     monkeypatch.setattr(schedule, "current_semester", lambda: {"XN": "2026-2027", "XQ": "1"})
@@ -100,15 +108,16 @@ def test_course_list_excludes_enrollments_before_september_2026(monkeypatch):
     bb.unclassified = []
     bb.results = lambda path: [
         {"courseId": "_old", "created": "2025-09-04T02:00:00Z"},
-        {"courseId": "_new", "created": "2026-09-04T02:00:00Z"},
+        {"courseId": "_new", "created": "2026-08-04T02:00:00Z"},
     ]
 
     def json_for(path):
         if path.endswith("/users/me"):
             return {"id": "_me"}
         if "/terms/" in path:
-            return {"name": "2026 Fall"}
-        return {"name": path.rsplit("/", 1)[-1], "termId": "_fall"}
+            return {"name": "2025 Fall" if path.endswith('_old') else '2026 Fall'}
+        cid = path.rsplit('/', 1)[-1]
+        return {"name": cid, "termId": cid}
 
     bb.json = json_for
     assert bb.current_courses() == [{"id": "_new", "name": "_new"}]
@@ -126,6 +135,7 @@ def test_blackboard_adapter_collects_file_document_and_assignment_attachments():
         {"id": "_a_1", "title": "作业", "contentHandler": {"id": "resource/x-bb-assignment"}},
     ])
     bb.results = lambda path: [{"id": path.split("/")[-2], "fileName": "附件.pdf"}]
+    bb.current_assignment_columns = lambda cid: [({'contentId':'_a_1'}, {})]
     files = bb.attachments("_course_1")
     assert len(files) == 3
     assert {x["title"] for x in files} == {"文件", "讲义", "作业"}
@@ -190,7 +200,7 @@ def test_assignment_list_excludes_old_and_inaccessible_tasks_but_keeps_new_undat
             response = Response()
             response.status_code = 403
             raise HTTPError(response=response)
-        return {"created": "2025-10-01T00:00:00Z" if path.endswith("/_undated_old_content") else "2026-09-03T00:00:00Z"}
+        return {"created": "2025-10-01T00:00:00Z" if path.endswith("/_undated_old_content") else "2026-09-07T00:00:00Z"}
 
     bb.json = content_for
     assert [item["name"] for item in bb.assignments()] == ["新作业", "新无截止"]

@@ -33,6 +33,30 @@ def unique_name(name: str, identity: str) -> str:
     return f"{stem}-{digest}{suffix}"
 
 
+def download_name(value: str) -> str:
+    """The same readable, Windows-safe name for the UI and the actual file."""
+    from urllib.parse import unquote
+    value = str(value or '附件')
+    if re.search(r'%[0-9a-fA-F]{2}', value):
+        try:
+            value = unquote(value, encoding='utf-8', errors='strict')
+        except UnicodeError:
+            pass
+    # Recover UTF-8 names accidentally interpreted as Latin-1 by an upstream.
+    try:
+        decoded = value.encode('latin-1').decode('utf-8')
+        if decoded != value:
+            value = decoded
+    except UnicodeError:
+        pass
+    name = Path(safe_name(value)).name
+    suffix = Path(name).suffix[:16]
+    stem = Path(name).stem[:100].rstrip(' .') or '附件'
+    if re.fullmatch(r'(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])', stem):
+        stem = '_' + stem
+    return stem + suffix
+
+
 def parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -134,13 +158,9 @@ def sync_attachments(provider: Any, root: Path, state_path: Path) -> dict[str, A
         key = attachment_key(a["course_id"], a["content_id"], a["id"])
         if key in seen:
             continue
-        course_dir = root / safe_name(a["course_name"])
-        course_dir.mkdir(parents=True, exist_ok=True)
-        target = course_dir / unique_name(a["file_name"], key)
         try:
-            if target.exists():
-                raise FileExistsError("目标文件已存在，避免覆盖")
-            provider.download_attachment(a["course_id"], a["content_id"], a["id"], target)
+            from .materials_local import LocalMaterials
+            LocalMaterials(root, state_path.with_name('downloaded-files.json')).save(provider, a)
             seen.add(key)
             downloaded += 1
         except Exception as exc:

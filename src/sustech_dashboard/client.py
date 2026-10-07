@@ -4,6 +4,12 @@ import sys
 
 
 def main():
+    if sys.stdout is None or sys.stderr is None:
+        from .paths import DATA_ROOT, prepare_private_directory
+        prepare_private_directory(DATA_ROOT)
+        log = (DATA_ROOT / 'client.log').open('a', encoding='utf-8', buffering=1)
+        sys.stdout = sys.stdout or log
+        sys.stderr = sys.stderr or log
     parser = argparse.ArgumentParser(description="南科大校园面板个人客户端")
     parser.add_argument("--backend", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-browser", action="store_true")
@@ -28,6 +34,8 @@ def main():
         secure_upstream()
         Metadata.from_bytes(TRUST_ROOT.read_bytes())
         assert len(list(create_app().url_map.iter_rules())) >= 35
+        from .paths import DATA_ROOT
+        (DATA_ROOT / 'self-test.json').write_text(__import__('json').dumps({'ok': True, 'version': __version__}), encoding='utf-8')
         print("SELF_TEST_OK " + __version__, flush=True)
         return 0
     if args.agent:

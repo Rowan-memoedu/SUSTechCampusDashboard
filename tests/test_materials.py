@@ -26,6 +26,8 @@ def key(item):
 
 def test_auto_uses_original_baseline_and_receipts_not_scan_counts(tmp_path):
     store = MaterialsStore(tmp_path / "jobs.sqlite3")
+    assert store.view(manifest())['auto_enabled'] is False
+    store.set_auto(True)
     m = manifest()
     store.scan_finished(m)
     assert store.view(m)["jobs"] == []

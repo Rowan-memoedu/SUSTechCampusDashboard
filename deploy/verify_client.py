@@ -15,6 +15,11 @@ import requests
 def verify(executable, cache):
     cache.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix="client-canary-", dir=cache))
+    if os.name == 'nt':
+        import struct
+        payload = executable.read_bytes()
+        pe = struct.unpack_from('<I', payload, 0x3c)[0]
+        assert struct.unpack_from('<H', payload, pe+24+68)[0] == 2, 'Windows build must use the GUI subsystem (no console window)'
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -23,7 +28,7 @@ def verify(executable, cache):
         env.pop(key, None)
     selftest = subprocess.run([str(executable), "--self-test"], env=env, capture_output=True, timeout=60)
     assert selftest.returncode == 0, selftest.stderr.decode(errors="replace")
-    assert b"SELF_TEST_OK" in selftest.stdout
+    assert json.loads((root / 'self-test.json').read_text())['ok'] is True
     log = (root / "runtime.log").open("wb")
     child = subprocess.Popen([str(executable), "--no-browser", "--port", str(port)], env=env,
                              stdout=log, stderr=log)

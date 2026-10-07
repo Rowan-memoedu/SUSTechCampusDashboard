@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from .core import CHINA_TZ, attachment_key
+from .core import CHINA_TZ, attachment_key, download_name
 
 
 def stamp():
@@ -32,7 +32,7 @@ class MaterialsStore:
                     results TEXT NOT NULL DEFAULT '{}'
                 );
             """)
-            db.execute("INSERT OR IGNORE INTO settings VALUES ('auto', 'true')")
+            db.execute("INSERT OR IGNORE INTO settings VALUES ('auto', 'false')")
 
     @contextmanager
     def connect(self, write=False):
@@ -188,6 +188,7 @@ class MaterialsStore:
 
     def view(self, manifest):
         with self.connect() as db:
+            known = {attachment_key(i['course_id'], i['content_id'], i['id']) for i in manifest.get('items', [])}
             heartbeat = self.setting(db, "heartbeat", {})
             files = {r["key"]: json.loads(r["receipt"]) for r in db.execute("SELECT * FROM files")}
             jobs = []
@@ -197,6 +198,10 @@ class MaterialsStore:
                 active.update({k: row["state"] for k in json.loads(row["keys"]) if k not in results})
             for row in db.execute("SELECT * FROM jobs ORDER BY created DESC LIMIT 20"):
                 keys, results = json.loads(row["keys"]), json.loads(row["results"])
+                keys = [k for k in keys if k in known]
+                results = {k: r for k, r in results.items() if k in keys}
+                if not keys:
+                    continue
                 jobs.append({"id": row["id"], "label": row["label"], "source": row["source"], "state": row["state"],
                     "total": len(keys), "done": sum(r["status"] in {"saved", "existing"} for r in results.values()),
                     "failed": sum(r["status"] == "failed" for r in results.values()), "updated_at": row["updated"],
@@ -205,7 +210,10 @@ class MaterialsStore:
             for item in manifest.get("items", []):
                 key = attachment_key(item["course_id"], item["content_id"], item["id"])
                 receipt = files.get(key, {})
-                items.append(dict(item, key=key, local_status=active.get(key, receipt.get("status", "not_downloaded")),
+                status = receipt.get('status', 'not_downloaded')
+                if status in {'saved', 'existing'} and item.get('source_version') and receipt.get('source_version') != item['source_version']:
+                    status = 'updated'
+                items.append(dict(item, file_name=download_name(item.get('file_name', '附件')), key=key, local_status=active.get(key, status),
                     local_path=receipt.get("path"), size=receipt.get("size", item.get("size")), error=receipt.get("error")))
             return {**manifest, "items": items, "auto_enabled": self.setting(db, "auto"), "jobs": jobs,
                     "agent": {**heartbeat, "online": time.time() - heartbeat.get("epoch", 0) < 90},

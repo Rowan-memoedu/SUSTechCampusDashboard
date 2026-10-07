@@ -19,8 +19,11 @@ const fs=require('fs'),{spawn}=require('child_process'),{chromium}=require('play
   if((await context.cookies()).some(x=>x.name.startsWith('campus_')))throw Error('Local browser unexpectedly pre-unlocked');
   await page.waitForFunction(()=>document.querySelector('#computer-auto-message')?.textContent.includes('当前电脑已自动连接'),null,{timeout:60000});
   await page.waitForFunction(()=>!document.querySelector('#material-download-all').disabled,null,{timeout:30000});
+  if(await page.locator('#material-auto').isChecked())throw Error('Automatic saving must default off');
   await page.locator('#material-download-all').click();
   await page.waitForFunction(()=>Array.from(document.querySelectorAll('.material-file-actions button')).some(b=>b.textContent==='打开文件'),null,{timeout:45000});
+  if(await page.getByRole('button',{name:'核验并下载',exact:true}).count())throw Error('Saved files still offer verification downloads');
+  if(await page.locator('.material-file-actions').getByRole('button',{name:'下载',exact:true}).count())throw Error('Saved file still offers download');
   for(const label of ['打开下载文件夹根目录','打开文件','打开所在文件夹']) {
    await page.getByRole('button',{name:label,exact:true}).click();
    await page.waitForFunction(()=>document.querySelector('#material-connect-message').textContent==='已在当前电脑打开。',null,{timeout:30000});
@@ -28,6 +31,7 @@ const fs=require('fs'),{spawn}=require('child_process'),{chromium}=require('play
   await page.goto(base+'/printing');
   await page.waitForFunction(()=>document.querySelector('#service-message').textContent.includes('已连接官方打印系统'),null,{timeout:45000});
   if(!await page.locator('#print-agent-select').inputValue())throw Error('Print agent not selected');
+  if(await page.locator('#print-agent-pair').count())throw Error('Misleading print button remains');
   await page.locator('#print-connect-computer').click();
   await page.waitForFunction(()=>document.querySelector('#print-connect-message').textContent.includes('当前电脑已连接'),null,{timeout:30000});
   await page.screenshot({path:c.root+'/printing.png',fullPage:true});

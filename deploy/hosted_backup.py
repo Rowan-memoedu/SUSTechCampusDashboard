@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
+from contextlib import closing
 
 
 def backup(source, destination, service=None):
@@ -32,7 +33,7 @@ def backup(source, destination, service=None):
             with path.open('rb') as header:
                 sqlite = header.read(16) == b'SQLite format 3\x00'
             if sqlite:
-                with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as src, sqlite3.connect(target) as dst:
+                with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as src, closing(sqlite3.connect(target)) as dst:
                     src.backup(dst)
                     if dst.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                         raise RuntimeError('SQLite recovery verification failed')

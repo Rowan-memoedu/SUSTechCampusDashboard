@@ -112,10 +112,6 @@ def register_instance(app, runtime, guard, csrf):
                 if is_hosted:
                     if payload.get('consent') is not True:
                         raise ValueError('请先阅读并同意托管说明')
-                    from datetime import date
-                    cutoff = payload.get('course_cutoff') or None
-                    if cutoff:
-                        cutoff = date.fromisoformat(cutoff).isoformat()
                     from .hosted import Space
                     from .authentication import set_credentials, clear_credentials
                     from . import app as dashboard
@@ -134,8 +130,6 @@ def register_instance(app, runtime, guard, csrf):
                             raise ValueError('学校登录失败，请检查账号、密码或网络后重试') from None
                     with dashboard._sync_lock, dashboard._scan_lock, dashboard._bb_lock:
                         Space().bind(payload.get('sid'), payload.get('password'), payload.get('remember') is True, verify)
-                        from .core import save_json
-                        save_json(DATA_ROOT / 'instance.json', {'course_cutoff': cutoff})
                 else:
                     configure_credentials(payload.get("sid"), payload.get("password"), payload.get("remember") is True)
                 runtime.configured.set()

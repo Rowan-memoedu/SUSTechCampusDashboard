@@ -7,13 +7,13 @@
 <p><a href="https://124.221.144.155/campus-updates/targets/windows-x86_64.zip" rel="noreferrer">下载 Windows 客户端</a>。<a href="https://github.com/Rowan-memoedu/SUSTechCampusDashboard" target="_blank" rel="noopener noreferrer">项目代码公开</a>，可审查源码，也可 fork 一份自行部署使用。</p>
 <p>面板退出只结束浏览器会话。断开学校账号会停止同步并清除保存的 CAS 凭据；此空间仍绑定原校园身份。</p>
 {% if configured %}<p>当前已绑定。下方可更新同一校园账号的密码。</p>{% endif %}
-<form id="owner-login" class="account-form"><label>学号<input name="sid" autocomplete="username" required maxlength="128"></label><label>CAS 密码<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label><label>课程起始日期（可留空）<input name="course_cutoff" type="date"></label><label class="check-option"><input name="remember" type="checkbox">加密保存凭据，允许后台持续同步</label><label class="check-option"><input name="consent" type="checkbox" required>我已阅读并同意上述托管说明</label><button type="submit">验证账号并开始同步</button><p id="login-message" role="status"></p></form>
+<p class="muted">课程、作业和资料仅匹配当前学期，起始日期自动按校历确定。</p><form id="owner-login" class="account-form"><label>学号<input name="sid" autocomplete="username" required maxlength="128"></label><label>CAS 密码<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label><label class="check-option"><input name="remember" type="checkbox">加密保存凭据，允许后台持续同步</label><label class="check-option"><input name="consent" type="checkbox" required>我已阅读并同意上述托管说明</label><button type="submit">验证账号并开始同步</button><p id="login-message" role="status"></p></form>
 <button id="disconnect-school" class="secondary">断开学校账号</button><p id="disconnect-message" role="status"></p>
 {% elif configured %}<p>本实例已有账号。<a href="{{ api_base }}/">进入校园面板</a></p>
 {% elif cloud %}<p>这是个人服务器实例。请由服务器所有者在服务器本机配置 systemd 加密凭据，再启动服务。</p>
 {% else %}<p>账号仅由这台设备直接登录学校 CAS。课程、作业、预约和下载记录保存在这台设备；版本服务器只提供更新文件。</p>
 {% if credential_error %}<p class="notice">本机保存的凭据无法读取。请在原 Windows 用户下启动；更换账户时使用新的实例目录。</p>{% endif %}
-<form id="owner-login"><label>学号<input name="sid" autocomplete="username" required maxlength="128"></label><label>CAS 密码<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
+<p class="muted">课程、作业和资料仅匹配当前学期，起始日期自动按校历确定。</p><form id="owner-login"><label>学号<input name="sid" autocomplete="username" required maxlength="128"></label><label>CAS 密码<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
 <label><input name="remember" type="checkbox" {% if can_remember %}checked{% else %}disabled{% endif %}>在当前 Windows 用户下加密保存，供下次自动登录</label>
 <button type="submit">登录并开始同步</button><p id="login-message" role="status"></p></form>{% endif %}</section>{% endblock %}
 {% block scripts %}<script src="{{ url_for('static',filename='instance.js') }}"></script>{% endblock %}

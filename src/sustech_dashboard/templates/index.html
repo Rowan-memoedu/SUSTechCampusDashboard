@@ -9,11 +9,11 @@
 <section class="wide" id="materials-panel"><div class="material-heading"><h2>课程与资料</h2><span id="material-agent" class="pill unknown">正在连接下载代理</span></div>
 <div id="material-root-action"></div>
 {% if hosted %}<p><button id="material-connect-computer" type="button">连接当前电脑</button> · <a href="https://124.221.144.155/campus-updates/targets/windows-x86_64.zip">下载客户端</a></p><p id="material-connect-message" role="status" hidden></p>{% endif %}
-<p class="muted">{% if hosted %}附件直接从学校保存到你的浏览器，云端不存储或转发文件。需要自动归档时，使用自己电脑上的下载组件。{% else %}保存位置：{{ download_root }}，按课程及资料目录分类。学校下载入口使用浏览器下载目录。批量下载跳过已核验文件，不覆盖已有文件。{% endif %}</p>
+<p class="muted">仅显示当前学期的课程资料。{% if hosted %}连接本机组件后，下载按钮将附件从学校直接保存到你的电脑，云端不存储或转发文件。学校下载入口使用浏览器自己的下载目录。{% else %}保存位置：{{ download_root }}，按课程及资料目录分类。学校下载入口使用浏览器下载目录。{% endif %}文件名与列表显示一致；批量下载只保存尚未下载或已更新的资料，同名资料和旧版本分别保留。</p>
 <div class="material-toolbar"><label class="material-search">搜索附件<input id="material-search" type="search" placeholder="文件名、课程或资料目录"></label>
 <label>显示<select id="material-filter"><option value="all">全部附件</option><option value="pending">未保存</option><option value="saved">已保存</option><option value="failed">下载失败</option></select></label>
 <button id="material-refresh" type="button" class="secondary">刷新附件清单</button><button id="material-download-all" type="button" disabled>全部资料下载</button></div>
-<div class="material-auto"><label><input type="checkbox" id="material-auto">{{ '本机组件自动保存新资料' if hosted else '自动下载新附件' }}</label><span class="muted">{% if hosted %}面板定时发现新资料；连接自己的下载组件后可自动保存。浏览器下载请使用学校入口。{% else %}仅下载原基线之后新出现的资料；旧资料可用“全部资料下载”。本机离线时保留下载请求。{% endif %}</span></div>
+<div class="material-auto"><label><input type="checkbox" id="material-auto">自动保存新资料</label><span class="muted">默认关闭，由你主动开启。开启后仅自动保存首次扫描之后新出现的本学期资料；已有资料请使用手动下载。本机离线时保留已提交的下载请求。</span></div>
 <p id="material-summary" class="muted">正在读取附件清单…</p><div id="material-message" class="notice" hidden role="status"></div><div id="material-jobs"></div><div id="material-courses"></div></section>
 <section class="wide" id="venues-panel"><div class="heading"><h2>场地与预约</h2><button id="venues-refresh" class="secondary" type="button">刷新场地</button></div>
 <p class="muted">进入预约页可查看具体占用、先输入目标时段筛选空闲场地，以及查询和管理我的预约。</p><div id="venues-message"></div>

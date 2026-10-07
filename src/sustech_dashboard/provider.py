@@ -13,8 +13,8 @@ from urllib.parse import urljoin, urlparse
 
 from requests.exceptions import HTTPError
 
-from .core import CHINA_TZ, parse_dt, submission_status
-from .execution import course_cutoff
+from .core import CHINA_TZ, parse_dt, submission_status, download_name
+from .academic_calendar import semester_scope
 
 
 BB_BASE = "https://bb.sustech.edu.cn"
@@ -54,20 +54,18 @@ def term_matches(term: dict[str, Any], semester: dict[str, Any], today: date) ->
     duration = (term.get("availability") or {}).get("duration") or {}
     start = parse_dt(duration.get("start"))
     end = parse_dt(duration.get("end"))
-    if start and end and start.date() <= today <= end.date():
-        return True
     name = str(term.get("name", "")).lower()
     academic = str(semester.get("XN", ""))
     season = str(semester.get("XQ", ""))
     if not academic or not season:
         return False
     years = re.findall(r"20\d{2}", academic)
-    first_year = years[0] if years else ""
-    if first_year not in name and academic not in name.lower():
+    expected_year = years[0 if season == '1' else -1] if years else ''
+    if expected_year not in name and academic not in name.lower():
         return False
-    return bool(re.search(r"秋|fall|autumn|第一|1st|semester\s*1", name)) if season == "1" else bool(
-        re.search(r"春|spring|第二|2nd|semester\s*2", name)
-    )
+    pattern = {'1': r'秋|fall|autumn|第一|1st|semester\s*1',
+               '2': r'春|spring|第二|2nd|semester\s*2', '3': r'夏|summer|第三|3rd|semester\s*3'}.get(season)
+    return bool(pattern and re.search(pattern, name))
 
 
 class Blackboard:
@@ -121,6 +119,7 @@ class Blackboard:
         from sustech_survival.tis.schedule import current_semester
 
         semester = current_semester()
+        self._scope = semester_scope(semester)
         me = self.json("/learn/api/public/v1/users/me")
         enrollments = self.results(f"/learn/api/public/v1/users/{me['id']}/courses")
         selected: list[dict[str, str]] = []
@@ -132,11 +131,11 @@ class Blackboard:
                 continue
             course = self.json(f"/learn/api/public/v1/courses/{cid}")
             name = course.get("name") or cid
-            enrolled_at = parse_dt(enrollment.get("created"))
-            if enrolled_at is None:
+            enrolled = parse_dt(enrollment.get('created'))
+            if enrolled is None:
                 unknown.append(name)
                 continue
-            if enrolled_at.date() < course_cutoff():
+            if not self._scope.get('enrollment_start', self._scope['start']) <= enrolled.date() <= self._scope['end']:
                 continue
             tid = course.get("termId")
             if tid:
@@ -162,6 +161,35 @@ class Blackboard:
         self._courses = selected
         return selected
 
+    def in_current_term(self, value):
+        timestamp = parse_dt(value)
+        scope = getattr(self, '_scope', None) or semester_scope()
+        return timestamp is not None and scope['start'] <= timestamp.date() <= scope['end']
+
+    def current_assignment_columns(self, cid):
+        cache = getattr(self, '_assignment_columns', {})
+        if cid in cache:
+            return cache[cid]
+        selected = []
+        for col in self.results(f'/learn/api/public/v1/courses/{cid}/gradebook/columns'):
+            if col.get('grading', {}).get('type') != 'Attempts' or not col.get('contentId'):
+                continue
+            due = col.get('grading', {}).get('due')
+            if due and not self.in_current_term(due):
+                continue
+            try:
+                content = self.json(f"/learn/api/public/v1/courses/{cid}/contents/{col['contentId']}")
+            except HTTPError as exc:
+                if exc.response is None or exc.response.status_code not in {403, 404}:
+                    raise
+                continue
+            if not due and not self.in_current_term(content.get('created')):
+                continue
+            selected.append((col, content))
+        cache[cid] = selected
+        self._assignment_columns = cache
+        return selected
+
     def _contents(self, course_id: str, parent_id: str | None = None, folders: tuple = ()):
         path = f"/learn/api/public/v1/courses/{course_id}/contents"
         if parent_id:
@@ -184,6 +212,10 @@ class Blackboard:
         for item in self._contents(course_id):
             if item.get("contentHandler", {}).get("id") not in supported:
                 continue
+            if item.get('contentHandler', {}).get('id') == 'resource/x-bb-assignment':
+                current = {col['contentId'] for col, _ in self.current_assignment_columns(course_id)}
+                if item['id'] not in current:
+                    continue
             iid = item["id"]
             try:
                 attachments = self.results(
@@ -198,7 +230,7 @@ class Blackboard:
                 out.append({
                     "content_id": iid,
                     "id": attachment["id"],
-                    "file_name": attachment.get("fileName") or "附件",
+                    "file_name": download_name(attachment.get("fileName") or "附件"),
                     "title": item.get("title", ""),
                     "folders": item.get("_folder_path", []),
                     "size": attachment.get("fileSize") or attachment.get("size"),
@@ -231,29 +263,11 @@ class Blackboard:
         for course in self.current_courses():
             cid = course["id"]
             try:
-                columns = self.results(f"/learn/api/public/v1/courses/{cid}/gradebook/columns")
+                columns = self.current_assignment_columns(cid)
             except Exception as exc:
                 raise RuntimeError(f"作业列表读取失败 ({type(exc).__name__})") from None
-            for col in columns:
-                if col.get("grading", {}).get("type") != "Attempts" or not col.get("contentId"):
-                    continue
+            for col, content in columns:
                 due = col.get("grading", {}).get("due")
-                due_at = parse_dt(due)
-                if due and due_at is None:
-                    self.warnings.append(f"{course['name']}：有作业截止时间无法解析，已跳过")
-                    continue
-                if due_at and due_at.date() < course_cutoff():
-                    continue
-                try:
-                    content = self.json(f"/learn/api/public/v1/courses/{cid}/contents/{col['contentId']}")
-                except HTTPError as exc:
-                    if exc.response is None or exc.response.status_code not in {403, 404}:
-                        raise
-                    continue
-                if not due_at:
-                    created_at = parse_dt(content.get("created"))
-                    if created_at is None or created_at.date() < course_cutoff():
-                        continue
                 try:
                     attempts = self.results(
                         f"/learn/api/public/v1/courses/{cid}/gradebook/columns/{col['id']}/attempts"

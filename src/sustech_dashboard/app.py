@@ -39,7 +39,12 @@ def load_json(path, default):
     value = _raw_load_json(path, default)
     if hosted() and path in {SNAPSHOT_PATH, MANIFEST_PATH} and value:
         from .shared_metadata import configured_client, unpack_document
-        return unpack_document(value, configured_client())
+        value = unpack_document(value, configured_client())
+    if path in {SNAPSHOT_PATH, MANIFEST_PATH} and value.get('semester_scope'):
+        scope = value['semester_scope']
+        today = datetime.now(CHINA_TZ).date().isoformat()
+        if not scope['enrollment_start'] <= today <= scope['end']:
+            return default  # A successful old-term cache is never a current-term result.
     return value
 
 
@@ -75,6 +80,8 @@ def scan_materials() -> dict:
                 configured_client().call('count', metrics=bb.metrics)
             manifest = {"updated_at": datetime.now(CHINA_TZ).isoformat(), "courses": courses,
                         "items": items, "warnings": bb.warnings}
+            if getattr(bb, '_scope', None):
+                manifest['semester_scope'] = {k: str(bb._scope[k]) for k in ('enrollment_start', 'start', 'end')}
             save_json(MANIFEST_PATH, manifest)
         from .materials_store import MaterialsStore
         MaterialsStore(MATERIALS_DB).scan_finished(manifest)
@@ -139,6 +146,8 @@ def sync_all() -> dict[str, Any]:
                     configured_client().call('count', metrics=bb.metrics)
             snapshot["blackboard_courses"] = courses
             snapshot["assignments"] = assignments
+            if getattr(bb, '_scope', None):
+                snapshot['semester_scope'] = {k: str(bb._scope[k]) for k in ('enrollment_start', 'start', 'end')}
             snapshot["source_updated_at"]["blackboard"] = datetime.now(CHINA_TZ).isoformat()
             snapshot["warnings"].extend(bb.warnings)
         except Exception as exc:
@@ -468,8 +477,8 @@ def create_app(runtime=None) -> Flask:
                 yield from upstream.iter_content(chunk_size=65536)
             finally:
                 close_upstream()
-        from .core import safe_name
-        name = safe_name(item["file_name"])
+        from .core import download_name
+        name = download_name(item["file_name"])
         response = Response(stream_with_context(chunks()), mimetype="application/octet-stream")
         response.headers["Content-Disposition"] = f"attachment; filename=attachment; filename*=UTF-8''{quote(name)}"
         if upstream.headers.get("Content-Length", "").isdigit():
@@ -541,6 +550,8 @@ def create_app(runtime=None) -> Flask:
                 label = "重试未完成附件"
             else:
                 raise ValueError("下载范围无效")
+            statuses = {i['key']: i['local_status'] for i in materials().view(manifest)['items']}
+            items = [i for i in items if statuses.get(attachment_key(i['course_id'], i['content_id'], i['id'])) not in {'saved', 'existing'}]
             jid = materials().enqueue([attachment_key(i["course_id"], i["content_id"], i["id"]) for i in items], label)
             return jsonify({"job_id": jid, "accepted": True}), 202
         except Exception as exc:

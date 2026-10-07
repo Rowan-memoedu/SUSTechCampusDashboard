@@ -17,11 +17,8 @@ def hosted():
 
 
 def course_cutoff():
-    # Keep the owner's established cutoff. New hosted spaces choose their own.
-    from .paths import DATA_ROOT
-    from .core import load_json
-    value = load_json(DATA_ROOT / 'instance.json', {}).get('course_cutoff')
-    return date.fromisoformat(value) if value else (date.min if hosted() else date(2026, 9, 1))
+    from .academic_calendar import semester_scope
+    return semester_scope()['start']
 
 
 def direct_downloads():
