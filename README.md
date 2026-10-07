@@ -4,7 +4,7 @@
 
 安装与运行见 [客户端说明](CLIENT-README.md)，更新、签名与维护流程见 [UPDATING.md](UPDATING.md)。源码公开，可 fork 后自行部署；凭据、校园数据、运行数据库和下载文件均不在仓库中。
 
-0.3.2 增加 Windows 本机首次连接入口：在公网打印页点击“连接当前电脑”，使用统一入口中的面板账号密码配对；校验本机与空间的校园身份一致后加密保存连接信息，普通客户端启动时自动连接打印。唯一在线的所属主机自动选中，多台主机或已有选择时不自动更换。下载区域顶部可打开根目录，已保存附件可打开文件或所在文件夹；公网页面通过正在运行的本机组件完成打开。
+0.3.3 修复公网打印和下载连接：公共入口登录成功后在后台自动配对本机，不重复输入面板密码；组件关闭时也可唤起。“连接当前电脑”保留作重试入口。打印和下载使用同一电脑连接，下载回执同步到网页。下载区域顶部可打开根目录，已保存附件可打开文件或所在文件夹。新版解压后需运行一次以登记 Windows 打开入口；浏览器首次可能提示允许打开客户端。
 
 0.3.0 增加邀请制托管空间：独立 Linux 用户、进程、目录、加密凭据与会话，首批最多 5 人。统一入口 [南科大校园面板](https://124.221.144.155/app/) 直接登录；首次邀请开通也在同一页完成，成功后自动进入个人面板，无需保存个人空间地址。可证明一致的公共信息合并刷新；课程目录仍逐人核验权限，已授权元数据用公共对象与个人引用去重。附件通过学校官方入口或自己的本机组件直接下载，云端不读取或转发文件。实现、验收与运维以 [第一阶段交付记录](docs/HOSTED-PHASE1.md) 为准；原路线见 [Web 托管试用计划](docs/WEB-HOSTED-PLAN.md)，后期本机连接与迁移见 [本机模式衔接说明](docs/LOCAL-MODE-HANDOFF.md)。
 
@@ -58,7 +58,7 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' status
 pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' bookings
 ```
 
-Windows 的 `start` / `serve` 命令启动本机客户端，`open-server` 打开已配对服务器。旧 Windows 登录任务 `SUSTechCampusDashboard` 已在从零重建时停用；当前运行独立的 0.3.2 普通客户端，首次配对后可自动连接打印。本机数据位于 `D:\AppData\SUSTechCampusDashboard`，依赖环境在 `D:\Caches\SUSTechCampusDashboard-venv`。凭据使用 Windows DPAPI，仅在当前用户进程内解密。
+Windows 的 `start` / `serve` 命令启动本机客户端，`open-server` 打开已配对服务器。旧 Windows 登录任务 `SUSTechCampusDashboard` 已在从零重建时停用；0.3.3 普通客户端支持从已登录网页唤起并连接打印、下载。本机数据位于 `D:\AppData\SUSTechCampusDashboard`，依赖环境在 `D:\Caches\SUSTechCampusDashboard-venv`。凭据使用 Windows DPAPI，仅在当前用户进程内解密。
 
 原拥有者实例曾使用 `sustechmon`、`/var/lib/sustech-room-monitor/dashboard` 和签名客户端启动器。2026-10-07 用户要求从零重建后，该服务及本机下载组件已停用，旧记录进入私密恢复区；`/campus/api/` 返回 410。当前从统一公共入口通过新邀请创建独立托管空间，尚未开通的新空间不继承旧会话、凭据、快照或下载基线。实际状态与验收见交付记录；旧讨论间监控继续停用。
 

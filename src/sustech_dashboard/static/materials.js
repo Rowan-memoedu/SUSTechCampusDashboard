@@ -8,7 +8,7 @@
   function message(text){$('material-message').textContent=text;$('material-message').hidden=!text;}
   function openLocal(label,kind,key){
     if(data?.local_open){const b=node('button',label,'secondary');b.onclick=async()=>{b.disabled=true;try{await post('/api/materials/open',{kind,key});}catch(e){message(e.message);}finally{b.disabled=false;}};return b;}
-    const a=node('a',label);a.href='http://127.0.0.1:18765/files#'+new URLSearchParams({kind,...(key?{key}:{})});a.target='_blank';a.rel='noopener noreferrer';return a;
+    const b=node('button',label,'secondary');b.onclick=()=>campusComputer(b,$('material-connect-message'),kind,key);return b;
   }
   async function post(path,payload){
     const response=await campusFetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(payload)});
@@ -81,6 +81,8 @@
     catch(e){message(e.message);}finally{fetching=false;}
   }
   $('material-search').oninput=render;$('material-filter').onchange=render;
+  if($('material-connect-computer'))$('material-connect-computer').onclick=()=>campusComputer($('material-connect-computer'),$('material-connect-message'));
+  window.addEventListener('campus-computer-connected',refresh);
   $('material-download-all').onclick=()=>requestDownload({scope:'all'},$('material-download-all'));
   $('material-refresh').onclick=async()=>{const button=$('material-refresh');button.disabled=true;try{await post('/api/materials/refresh',{});message('正在重新扫描附件；发现新资料后，自动模式会提交下载。');await refresh();}catch(e){message(e.message);button.disabled=false;}};
   $('material-auto').onchange=async()=>{const box=$('material-auto'),enabled=box.checked;box.disabled=true;try{await post('/api/materials/auto',{enabled});message(enabled?'已启用自动下载新附件；已有资料不会因开关变化而全部下载。':'已暂停自动下载。正在传输的文件可能完成，手动下载请求仍会执行。');await refresh();}catch(e){message(e.message);box.checked=!enabled;}finally{box.disabled=false;}};

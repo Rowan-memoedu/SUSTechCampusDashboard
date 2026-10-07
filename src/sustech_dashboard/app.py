@@ -549,7 +549,7 @@ def create_app(runtime=None) -> Flask:
     @app.post("/api/materials/agent")
     def material_agent():
         local_request()
-        if not CLOUD or request.headers.get("X-Campus-Agent") != "1" or request.headers.get("Origin") or not request.authorization or request.authorization.type != 'basic':
+        if not CLOUD or request.headers.get("X-Campus-Agent") != "1" or request.headers.get("Origin") or not request.authorization or request.authorization.type not in {'basic', 'bearer'}:
             abort(403)
         try:
             payload = request.get_json()

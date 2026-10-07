@@ -94,6 +94,11 @@ def register_web_auth(app, guard, csrf):
 
     configuration()
     sessions = BrowserSessions(DATA_ROOT / "browser-sessions.sqlite3")
+    devices = None
+    if is_hosted:
+        from .devices import register_devices
+        register_devices(app, guard, account, DATA_ROOT / 'devices.sqlite3')
+        devices = app.extensions['campus_devices']
     attempts, attempt_lock = OrderedDict(), threading.Lock()
 
     def credentials_valid(user, password):
@@ -143,14 +148,20 @@ def register_web_auth(app, guard, csrf):
         checking = request.path == "/auth/verify"
         if checking:
             original = request.headers.get("X-Campus-Original-URI", "").split("?", 1)[0]
-            public = {'/auth/login', '/static/campus.css'} | ({'/invite', '/static/invite.js'} if is_hosted else set())
+            public = {'/auth/login', '/static/campus.css'} | ({'/invite', '/static/invite.js', '/api/devices/exchange'} if is_hosted else set())
             if original in {request.script_root + path for path in public}:
                 return "", 204
-        if request.path in {'/auth/login', '/static/campus.css'} or (is_hosted and request.path in {'/invite', '/static/invite.js'}):
+        if request.path in {'/auth/login', '/static/campus.css'} or (is_hosted and request.path in {'/invite', '/static/invite.js', '/api/devices/exchange'}):
             return None
+        auth = request.authorization
+        if devices and auth and auth.type == 'bearer':
+            from .devices import agent_path
+            path = original.removeprefix(request.script_root) if checking else request.path
+            if agent_path(path) and devices.valid_device(auth.token, account()):
+                return ('', 204) if checking else None
+            return jsonify(error='电脑授权已失效，请在网页重新点击连接电脑'), 401
         if account() and sessions.valid(request.cookies.get(cookie, ""), account()):
             return ("", 204) if checking else None
-        auth = request.authorization
         if (request.cookies.get(signed_out) != "1" and auth and auth.type == "basic"
                 and credentials_valid(auth.username, auth.password)):
             # Download agents keep their existing Basic authentication. A browser

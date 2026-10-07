@@ -52,6 +52,8 @@ def run(stop):
         except Exception:
             configured = False
         base, session = cloud_session()
+        from .download_agent import CONFIG
+        config_stamp = CONFIG.stat().st_mtime_ns if CONFIG.exists() else None
         identity = DATA_ROOT / 'download-agent-id.txt'
         # The download agent already uses this machine identity.
         if not identity.exists():
@@ -114,6 +116,11 @@ def run(stop):
                 if sent_receipt:
                     payload['receipt'] = sent_receipt
             try:
+                stamp = CONFIG.stat().st_mtime_ns if CONFIG.exists() else None
+                if stamp != config_stamp:
+                    session.close()
+                    base, session = cloud_session()
+                    config_stamp = stamp
                 response = session.post(base + '/api/printing/agent', headers=headers, json=payload, timeout=(10,30))
                 response.raise_for_status()
                 job = response.json().get('job')

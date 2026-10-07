@@ -37,7 +37,7 @@ def register_services(app, guard, csrf, public_error):
     def agent_guard():
         guard()
         if (not cloud_print() or request.headers.get('X-Campus-Agent') != '1'
-                or not request.authorization or request.authorization.type != 'basic'):
+                or request.headers.get('Origin') or not request.authorization or request.authorization.type not in {'basic', 'bearer'}):
             raise ValueError('仅允许已认证的配对客户端访问')
 
     @app.get('/api/printing/relay')

@@ -10,7 +10,14 @@ def main():
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--agent", action="store_true", help="连接自己服务器的执行主机客户端（附件下载与打印）")
+    parser.add_argument('--connect-uri', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if not args.backend and not args.self_test and not args.agent:
+        from .protocol import register_protocol
+        register_protocol()
+    if args.connect_uri:
+        from .protocol import handle_uri
+        return handle_uri(args.connect_uri, args.port)
     if args.self_test:
         from waitress import create_server
         from .authentication import secure_upstream

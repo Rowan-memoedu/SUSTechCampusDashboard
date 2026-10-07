@@ -62,6 +62,8 @@ def create_app(root, config_path, exchange=backend):
                       SESSION_COOKIE_NAME='__Secure-campus_entry', SESSION_COOKIE_PATH='/app/',
                       SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
     attempts, lock = OrderedDict(), threading.Lock()
+    from .desktop_handoff import register_handoff, digest as desktop_digest
+    handoffs = register_handoff(app, root)
 
     def configuration():
         config = json.loads(Path(config_path).read_text())
@@ -77,9 +79,9 @@ def create_app(root, config_path, exchange=backend):
     def guard():
         if request.host != configuration()['host'] or not request.is_secure:
             abort(400)
-        if request.method == 'POST':
+        if request.method == 'POST' and request.endpoint != 'desktop_poll':
             if request.headers.get('Origin') != 'https://' + request.host or not secrets.compare_digest(
-                    request.form.get('csrf', '').encode(), session.get('csrf', secrets.token_urlsafe(32)).encode()):
+                    (request.headers.get('X-CSRF-Token') or request.form.get('csrf', '')).encode(), session.get('csrf', secrets.token_urlsafe(32)).encode()):
                 abort(403)
             peer, now = request.headers.get('X-Forwarded-For', request.remote_addr or '')[:128], time.monotonic()
             with lock:
@@ -102,6 +104,12 @@ def create_app(root, config_path, exchange=backend):
         return response
 
     def enter(route, cookies):
+        key = request.form.get('desktop_key')
+        if key and route['prefix'].startswith('/spaces/'):
+            try:
+                session['desktop_login'] = {'digest': desktop_digest(key), 'prefix': route['prefix']}
+            except ValueError:
+                pass  # An invalid optional handoff must not break a correct login.
         response = redirect(route['prefix'] + '/', code=303)
         for value in cookies:
             response.headers.add('Set-Cookie', value)
@@ -180,7 +188,7 @@ def create_app(root, config_path, exchange=backend):
                     error, status = ('登录尝试过多，请一分钟后重试', 429) if result == 429 else ('面板账号或密码不正确', 401)
                 except (OSError, http.client.HTTPException):
                     error, status = '面板暂时无法连接，请稍后重试', 503
-        return render_template('entry.html', csrf=session['csrf'], error=error), status
+        return render_template('entry.html', csrf=session['csrf'], error=error, desktop_key=handoffs.issue()), status
 
     return app
 

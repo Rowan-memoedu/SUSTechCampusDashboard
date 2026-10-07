@@ -9,3 +9,12 @@ function showInvitation() {
 }
 window.addEventListener('hashchange', showInvitation);
 showInvitation();
+for(const form of document.querySelectorAll('form'))form.addEventListener('submit',()=>{
+  if(!/Windows/.test(navigator.userAgent))return;
+  const key=form.elements.desktop_key.value,csrf=form.elements.csrf.value;
+  sessionStorage.setItem('campus-desktop-handoff',JSON.stringify({key,csrf}));
+  // Use the existing login click to start the component; authorization is sent only after login succeeds.
+  const launch=document.createElement('a');
+  launch.href='sustech-campus://login#'+new URLSearchParams({server:location.origin+'/app',key});
+  launch.click();
+});

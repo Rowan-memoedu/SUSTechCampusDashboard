@@ -3,11 +3,72 @@ from html.parser import HTMLParser
 import json
 import os
 import re
+import uuid
 from urllib.parse import urlsplit
 
 import requests
 
 from .core import DATA_ROOT
+
+
+def pair_server_url(value):
+    if not isinstance(value, str) or len(value) > 512:
+        raise ValueError('连接地址无效')
+    parsed = urlsplit(value)
+    allowed = os.environ.get('SUSTECH_PAIR_HOST', '124.221.144.155')
+    if (parsed.scheme != 'https' or parsed.netloc != allowed or parsed.username or parsed.password
+            or parsed.query or parsed.fragment or not re.fullmatch(r'/spaces/[a-f0-9]{24}', parsed.path)):
+        raise ValueError('连接地址不是此客户端的公共入口')
+    return value
+
+
+def connect_ticket(value, ticket):
+    from .download_agent import CONFIG
+    from .dpapi_store import load_credentials, protect_password, unprotect_password, _restrict_directory
+    from .core import load_json, save_json
+    url = pair_server_url(value)
+    if os.name != 'nt':
+        raise ValueError('网页唤起当前适用于 Windows 客户端')
+    if not isinstance(ticket, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43}', ticket):
+        raise ValueError('连接授权无效，请重新点击网页中的连接电脑')
+    old = load_json(CONFIG, {})
+    if old and old.get('url') != url:
+        raise ValueError('此电脑已连接另一空间，请使用已配对空间登录')
+    try:
+        sid, _ = load_credentials()
+    except Exception:
+        raise ValueError('请先在本机客户端登录校园账号并加密保存；无需重复输入面板账号密码') from None
+    _restrict_directory(DATA_ROOT)
+    identity = DATA_ROOT / 'download-agent-id.txt'
+    try:
+        with identity.open('x', encoding='ascii') as handle:
+            handle.write(uuid.uuid4().hex)
+    except FileExistsError:
+        pass
+    previous = unprotect_password(old['token_dpapi']) if old.get('token_dpapi') else None
+    with requests.Session() as session:
+        reply = session.post(url + '/api/devices/exchange', json={'ticket': ticket, 'sid': sid,
+            'device': identity.read_text(encoding='ascii').strip(), 'previous': previous},
+            headers={'X-Campus-Agent': '1'}, timeout=(10, 30), allow_redirects=False)
+        if reply.status_code != 200:
+            raise ValueError('连接授权已过期或校园账号不一致，请从已登录网页重新连接')
+        result = reply.json()
+        if not re.fullmatch(r'[A-Za-z0-9_-]{43}', result.get('token', '')):
+            raise ValueError('服务器返回无效电脑授权')
+        save_json(CONFIG, {'url': url, 'token_dpapi': protect_password(result['token'])})
+        intent = result['intent']
+        state = 'connected'
+        if intent.get('kind') != 'connect':
+            from .local_files import target, open_target
+            try:
+                open_target(target(intent.get('key'), intent.get('kind')))
+                state = 'opened'
+            except (ValueError, OSError):
+                state = 'open_failed'
+        session.post(url + '/api/devices/result', json={'id': result['id'], 'state': state},
+            headers={'Authorization': 'Bearer ' + result['token'], 'X-Campus-Agent': '1'},
+            timeout=(10, 30), allow_redirects=False).raise_for_status()
+    return {'ok': True, 'message': '电脑已连接，打印与下载组件正在上线', 'state': state}
 
 
 class LoginToken(HTMLParser):
@@ -73,8 +134,9 @@ def register_pairing(app, runtime, guard, csrf):
 
     @app.get('/connect')
     def connect_page():
+        from .core import load_json
         return render_template('connect.html', csrf_token=csrf, api_base=request.script_root,
-                               configured=runtime.configured.is_set())
+                               configured=runtime.configured.is_set(), result=load_json(DATA_ROOT / 'connection-result.json', {}))
 
     @app.post('/api/instance/pair')
     def local_pair():
@@ -83,7 +145,7 @@ def register_pairing(app, runtime, guard, csrf):
             if not runtime.configure_lock.acquire(False):raise ValueError('已有连接操作正在进行')
             try:
                 payload = request.get_json() or {}
-                result = connect(payload.get('url'), payload.get('username'), payload.get('password'))
+                result = connect_ticket(payload.get('url'), payload.get('ticket'))
                 runtime.start_print_agent()
                 return jsonify(result)
             finally:runtime.configure_lock.release()

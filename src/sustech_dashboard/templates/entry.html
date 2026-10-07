@@ -6,14 +6,14 @@
 <h1>南科大校园面板</h1><p>课程、作业、资料和校园服务</p>
 {% if error %}<p role="alert" class="error">{{ error }}</p>{% endif %}
 <form method="post" action="/app/">
-<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="login">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="login"><input type="hidden" name="desktop_key" value="{{ desktop_key }}">
 <label for="username">面板账号</label><input id="username" name="username" autocomplete="username" required maxlength="64">
 <label for="password">面板密码</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
 <label class="remember"><input type="checkbox" name="remember" checked>记住登录</label><button type="submit">进入面板</button>
-</form><small>使用现有面板账号登录，无需填写个人空间地址。</small>
+</form><small>使用现有面板账号登录；已安装的本机组件会在登录后自动连接。浏览器提示打开校园面板时允许即可。</small>
 <details id="activation"><summary>首次使用：用邀请开通</summary>
 <form method="post" action="/app/">
-<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="activate"><input type="hidden" name="remember" value="on">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="activate"><input type="hidden" name="remember" value="on"><input type="hidden" name="desktop_key" value="{{ desktop_key }}">
 <label for="invitation">邀请链接或邀请码</label><input id="invitation" name="invitation" autocomplete="off" required>
 <label for="new-user">设置面板账号</label><input id="new-user" name="username" autocomplete="username" required maxlength="64">
 <label for="new-password">设置面板密码</label><input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block header %}<h1>连接当前电脑</h1>{% endblock %}
-{% block content %}<section class="wide"><p>先在这台电脑登录同一个校园账号并加密保存，再输入公共入口中的面板账号密码。连接信息用当前 Windows 用户的 DPAPI 加密保存；CAS 密码不会发送给托管站。</p>
-{% if not configured %}<p class="notice">这台电脑尚未登录校园账号。请先<a href="/setup">在本机登录</a>，再从“本机与更新”进入连接页面。</p>{% endif %}
-<form id="computer-connect"><label>公共入口<input name="url" type="url" value="https://124.221.144.155/app/" required></label><label>面板账号<input name="username" autocomplete="username" required maxlength="64"></label><label>面板密码<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label><button>连接并启动打印组件</button><p id="connect-message" role="status"></p></form><p>校园打印仍需这台电脑连接校园网或学校 VPN；配对成功不代表打印网络已可达。</p></section>{% endblock %}
-{% block scripts %}<script src="{{ url_for('static',filename='connect.js') }}"></script>{% endblock %}
+{% block content %}<section class="wide"><p>公共入口登录成功后会在后台自动配对本机，连接打印和下载，无需再次输入面板账号密码。“连接当前电脑”保留作重试入口。</p>
+{% if result %}<p role="status">{{ result.message }}</p>{% endif %}
+{% if not configured %}<p class="notice">这台电脑尚未保存校园账号。请先<a href="/setup">在本机登录校园账号</a>并加密保存，再返回网页点击连接。</p>{% endif %}
+<p><a href="https://124.221.144.155/app/">打开统一公共入口</a></p><p>打印和附件下载由当前电脑执行，请保持校园网或学校 VPN 可用。</p></section>{% endblock %}

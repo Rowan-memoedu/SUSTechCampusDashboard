@@ -3,4 +3,5 @@
 <main>{% block content %}{% endblock %}</main>
 {% if not hosted %}<footer><a href="{{ api_base }}/connect">连接当前电脑到公网打印</a></footer>{% endif %}
 <script>const roomCsrf={{ csrf_token|tojson }};const apiBase={{ api_base|tojson }};</script><script src="{{ url_for('static',filename='common.js') }}"></script>
+{% if hosted %}<script src="{{ url_for('static',filename='computer.js') }}"></script>{% endif %}
 {% block scripts %}{% endblock %}</body></html>

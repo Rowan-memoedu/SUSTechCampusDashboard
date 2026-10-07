@@ -22,7 +22,7 @@ CONFIG = DATA_ROOT / "cloud-access.dpapi.json"
 def cloud_session():
     if os.name == 'nt':
         config = json.loads(CONFIG.read_text(encoding="utf-8"))
-        password = unprotect_password(config['password_dpapi'])
+        password = unprotect_password(config.get('token_dpapi') or config['password_dpapi'])
     else:
         # Linux execution hosts use a private systemd credential, never a plaintext data file.
         directory = os.environ.get('CREDENTIALS_DIRECTORY')
@@ -35,7 +35,10 @@ def cloud_session():
         raise ValueError("个人服务器必须使用 HTTPS 地址")
     url = url.rstrip("/")
     session = requests.Session()
-    session.auth = (config["username"], password)
+    if config.get('token_dpapi'):
+        session.headers['Authorization'] = 'Bearer ' + password
+    else:
+        session.auth = (config["username"], password)
     session.mount(url, HTTPAdapter(max_retries=Retry(
         total=2, allowed_methods={"GET"}, backoff_factor=1, status_forcelist={502, 503, 504})))
     return url, session
@@ -66,7 +69,9 @@ class CloudFiles:
         from .provider import Blackboard
         if not load_owner_credentials():
             raise RuntimeError('请先在本机配置自己的校园账号，附件仅从学校直接下载')
-        Blackboard().download_attachment(course_id, content_id, attachment_id, target)
+        from .app import _bb_lock
+        with _bb_lock:
+            Blackboard().download_attachment(course_id, content_id, attachment_id, target)
 
 
 class DownloadBusy(Exception):
@@ -138,7 +143,7 @@ def main():
         worker.join(timeout=300)
 
 
-def run_agent(provider_factory, poll, stop):
+def run_agent(provider_factory, poll, stop, remote_factory=None):
     """Same baseline, queue and receipt protocol for direct and paired clients."""
     from .materials_local import LocalMaterials
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
@@ -164,10 +169,11 @@ def run_agent(provider_factory, poll, stop):
         inventory = registry.inventory()
         pending_inventory = list(inventory)
         initialized = False
+        inventory_at = time.monotonic()
 
         def download_job(job):
             try:
-                provider = provider_factory()
+                provider = (remote_factory if job.get('_remote') and remote_factory else provider_factory)()
                 items = {attachment_key(i["course_id"], i["content_id"], i["id"]): i for i in provider.manifest["items"]}
                 for key in job["keys"]:
                     with guard:
@@ -197,10 +203,14 @@ def run_agent(provider_factory, poll, stop):
                     progress["current_file"] = ""
 
         while not stop.is_set() or (worker is not None and worker.is_alive()) or progress["id"]:
+            if not pending_inventory and time.monotonic() - inventory_at >= 30:
+                pending_inventory = LocalMaterials(DOWNLOAD_ROOT, DATA_ROOT / 'downloaded-files.json').inventory()
+                inventory_at = time.monotonic()
             with guard:
                 active = progress["id"]
                 payload = {"agent_id": agent_id, "claim": active is None and not stop.is_set(), "active_job": active,
-                           "state": "downloading" if active else "idle", "current_file": progress["current_file"]}
+                           "state": "downloading" if active else "idle", "current_file": progress["current_file"],
+                           '_remote': progress.get('remote', False)}
                 if not initialized:
                     payload["seen_keys"] = state["seen"]
                 if pending_inventory:
@@ -221,7 +231,7 @@ def run_agent(provider_factory, poll, stop):
                         progress.update(id=None, results=[], finished=False)
                     if data.get("job"):
                         job = data["job"]
-                        progress.update(id=job["id"], results=[], finished=False)
+                        progress.update(id=job["id"], results=[], finished=False, remote=bool(job.get('_remote')))
                         worker = threading.Thread(target=download_job, args=(job,), daemon=True)
                         worker.start()
                 save_json(DATA_ROOT / "download-agent-health.json", {"at": datetime.now(CHINA_TZ).isoformat(), "connected": True})
@@ -229,6 +239,66 @@ def run_agent(provider_factory, poll, stop):
                 save_json(DATA_ROOT / "download-agent-health.json", {"at": datetime.now(CHINA_TZ).isoformat(),
                           "connected": False, "error": type(exc).__name__})
             time.sleep(5) if stop.is_set() else stop.wait(5)
+
+
+class PairedPoll:
+    """One file worker, two queues; acknowledgements always go to the owning queue."""
+    def __init__(self, local_poll):
+        self.local_poll = local_poll
+        self.signature = None
+        self.session = None
+        self.inventory = []
+        self.inventory_at = 0
+        self.initialized = False
+
+    @staticmethod
+    def heartbeat(payload):
+        return {k: v for k, v in dict(payload, claim=False, active_job=None).items()
+                if k not in {'job_update', '_remote'}}
+
+    def remote_poll(self, payload):
+        from .materials_local import LocalMaterials
+        signature = CONFIG.stat().st_mtime_ns
+        if signature != self.signature:
+            if self.session:
+                self.session.close()
+            self.url, self.session = cloud_session()
+            self.signature, self.initialized, self.inventory_at = signature, False, 0
+            self.inventory = []
+        outgoing = {k: v for k, v in payload.items() if k not in {'inventory', 'seen_keys', '_remote'}}
+        if not self.initialized:
+            outgoing['seen_keys'] = load_json(DATA_ROOT / 'attachments.json', {}).get('seen', [])
+        if not self.inventory and time.monotonic() - self.inventory_at >= 30:
+            self.inventory = LocalMaterials(DOWNLOAD_ROOT, DATA_ROOT / 'downloaded-files.json').inventory()
+            self.inventory_at = time.monotonic()
+        outgoing['inventory'] = self.inventory[:200]
+        response = self.session.post(self.url + '/api/materials/agent', json=outgoing,
+                                    headers={'X-Campus-Agent': '1'}, timeout=(10, 30))
+        response.raise_for_status()
+        result = response.json()
+        self.initialized = True
+        self.inventory = self.inventory[200:]
+        if result.get('job'):
+            result['job']['_remote'] = True
+        return result
+
+    def __call__(self, payload):
+        remote = bool(payload.get('active_job') and payload.get('_remote'))
+        local = self.local_poll(self.heartbeat(payload) if remote else {k: v for k, v in payload.items() if k != '_remote'})
+        if not CONFIG.exists():
+            if remote:
+                raise RuntimeError('电脑配对信息不可用，下载回执等待连接恢复')
+            return local
+        try:
+            outgoing = payload if remote or (not payload.get('active_job') and not local.get('job')) else self.heartbeat(payload)
+            result = self.remote_poll(outgoing)
+            save_json(DATA_ROOT / 'cloud-download-health.json', {'connected': True, 'at': time.time()})
+            return result if remote or result.get('job') else local
+        except Exception:
+            save_json(DATA_ROOT / 'cloud-download-health.json', {'connected': False, 'at': time.time()})
+            if remote:
+                raise
+            return local
 
 
 def local_agent(stop):
@@ -243,11 +313,10 @@ def local_agent(stop):
         def download_attachment(self, course_id, content_id, attachment_id, target):
             with app._bb_lock:
                 app.Blackboard().download_attachment(course_id, content_id, attachment_id, target)
-    def poll(payload):
-        return store.agent_poll(payload, load_json(app.MANIFEST_PATH, {}))
+    poll = PairedPoll(lambda payload: store.agent_poll(payload, load_json(app.MANIFEST_PATH, {})))
     while not stop.is_set():
         try:
-            run_agent(DirectFiles, poll, stop)
+            run_agent(DirectFiles, poll, stop, remote_factory=CloudFiles)
         except Exception as exc:
             save_json(DATA_ROOT / "download-agent-health.json", {"at": datetime.now(CHINA_TZ).isoformat(),
                 "connected": False, "error": type(exc).__name__})

@@ -7,7 +7,8 @@
 <section><div class="heading"><h2>Blackboard 作业</h2><span class="pill unknown" id="assignment-count"></span></div><p class="muted">点击小三角查看描述、要求、附件和提交记录；文件只有在点击“提交作业”后才会上传。</p><div id="assignments"></div></section>
 <section><h2>考试与待评教</h2><h3>后续考试</h3><div id="exams"></div><h3>待评教</h3><div id="evals"></div></section>
 <section class="wide" id="materials-panel"><div class="material-heading"><h2>课程与资料</h2><span id="material-agent" class="pill unknown">正在连接下载代理</span></div>
-<div id="material-root-action"><a id="material-open-root" href="http://127.0.0.1:18765/files#kind=root" target="_blank" rel="noopener noreferrer">打开下载文件夹根目录</a></div>
+<div id="material-root-action"></div>
+{% if hosted %}<p><button id="material-connect-computer" type="button">连接当前电脑</button> · <a href="https://124.221.144.155/campus-updates/targets/windows-x86_64.zip">下载客户端</a></p><p id="material-connect-message" role="status" hidden></p>{% endif %}
 <p class="muted">{% if hosted %}附件直接从学校保存到你的浏览器，云端不存储或转发文件。需要自动归档时，使用自己电脑上的下载组件。{% else %}保存位置：{{ download_root }}，按课程及资料目录分类。学校下载入口使用浏览器下载目录。批量下载跳过已核验文件，不覆盖已有文件。{% endif %}</p>
 <div class="material-toolbar"><label class="material-search">搜索附件<input id="material-search" type="search" placeholder="文件名、课程或资料目录"></label>
 <label>显示<select id="material-filter"><option value="all">全部附件</option><option value="pending">未保存</option><option value="saved">已保存</option><option value="failed">下载失败</option></select></label>
