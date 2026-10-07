@@ -24,7 +24,7 @@ def pair_server_url(value):
 
 def connect_ticket(value, ticket):
     from .download_agent import CONFIG
-    from .dpapi_store import load_credentials, protect_password, unprotect_password, _restrict_directory
+    from .dpapi_store import CREDENTIALS_PATH, load_credentials, save_paired_credentials, protect_password, unprotect_password, _restrict_directory
     from .core import load_json, save_json
     url = pair_server_url(value)
     if os.name != 'nt':
@@ -34,10 +34,11 @@ def connect_ticket(value, ticket):
     old = load_json(CONFIG, {})
     if old and old.get('url') != url:
         raise ValueError('此电脑已连接另一空间，请使用已配对空间登录')
-    try:
-        sid, _ = load_credentials()
-    except Exception:
-        raise ValueError('请先在本机客户端登录校园账号并加密保存；无需重复输入面板账号密码') from None
+    # An existing identity must still match. An empty client is bootstrapped from
+    # the authenticated browser grant, without a second campus login form.
+    sid = load_credentials()[0] if CREDENTIALS_PATH.exists() else None
+    from .credential_transfer import X25519PrivateKey, public_key, unseal
+    private = X25519PrivateKey.generate()
     _restrict_directory(DATA_ROOT)
     identity = DATA_ROOT / 'download-agent-id.txt'
     try:
@@ -46,15 +47,33 @@ def connect_ticket(value, ticket):
     except FileExistsError:
         pass
     previous = unprotect_password(old['token_dpapi']) if old.get('token_dpapi') else None
+    device = identity.read_text(encoding='ascii').strip()
     with requests.Session() as session:
         reply = session.post(url + '/api/devices/exchange', json={'ticket': ticket, 'sid': sid,
-            'device': identity.read_text(encoding='ascii').strip(), 'previous': previous},
+            'device': device, 'previous': previous, 'bootstrap_key': public_key(private)},
             headers={'X-Campus-Agent': '1'}, timeout=(10, 30), allow_redirects=False)
         if reply.status_code != 200:
             raise ValueError('连接授权已过期或校园账号不一致，请从已登录网页重新连接')
         result = reply.json()
         if not re.fullmatch(r'[A-Za-z0-9_-]{43}', result.get('token', '')):
             raise ValueError('服务器返回无效电脑授权')
+        try:
+            credentials = unseal(private, result['bootstrap'], ticket, device)
+        except Exception:
+            raise ValueError('电脑凭据交接失败，请从公共入口重新连接') from None
+        if sid is not None and sid != credentials[0]:
+            raise ValueError('本机校园账号与当前网页空间不一致，未连接')
+        from .authentication import current_credentials, set_credentials, clear_credentials
+        if current_credentials() != credentials:
+            from . import app as dashboard
+            with dashboard._sync_lock, dashboard._scan_lock, dashboard._bb_lock:
+                clear_credentials()
+                set_credentials(*credentials)
+                try:
+                    save_paired_credentials(*credentials)
+                except Exception:
+                    clear_credentials()
+                    raise
         save_json(CONFIG, {'url': url, 'token_dpapi': protect_password(result['token'])})
         intent = result['intent']
         state = 'connected'
@@ -145,7 +164,12 @@ def register_pairing(app, runtime, guard, csrf):
             if not runtime.configure_lock.acquire(False):raise ValueError('已有连接操作正在进行')
             try:
                 payload = request.get_json() or {}
+                was_configured = runtime.configured.is_set()
                 result = connect_ticket(payload.get('url'), payload.get('ticket'))
+                runtime.configured.set()
+                runtime.credential_error = False
+                if not was_configured:
+                    runtime.request_sync()
                 runtime.start_print_agent()
                 return jsonify(result)
             finally:runtime.configure_lock.release()

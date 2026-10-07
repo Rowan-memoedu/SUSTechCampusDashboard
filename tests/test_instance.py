@@ -55,9 +55,62 @@ def test_first_login_validates_once_no_account_switch_or_password_echo(instance,
     headers["X-CSRF-Token"] = csrf
     result = client.post("/api/instance/login", json=payload, headers=headers)
     assert result.status_code == 200 and rt.configured.is_set()
+    assert rt.sync_requested.is_set()
     assert "not-a-real-password" not in result.text
     assert client.post("/api/instance/login", json=payload, headers=headers).status_code == 409
     assert calls == [("test-account", "not-a-real-password", False)]
+
+
+def test_cold_pair_requires_local_auth_and_csrf_but_not_second_campus_login(instance, monkeypatch):
+    from sustech_dashboard import pairing
+    rt, client, headers = instance
+    calls = []
+    monkeypatch.setattr(pairing, 'connect_ticket', lambda *args: calls.append(args) or {'ok': True})
+    payload = {'url':'https://124.221.144.155/spaces/'+'a'*24, 'ticket':'t'*43}
+    assert client.post('/api/instance/pair', json=payload, headers=headers).status_code == 401
+    unlock(rt, client, headers)
+    assert client.post('/api/instance/pair', json=payload, headers=headers).status_code == 400
+    csrf = re.search(r'const roomCsrf="([^"]+)"', client.get('/connect', headers=headers).text)[1]
+    assert client.post('/api/instance/pair', json=payload, headers={**headers,'X-CSRF-Token':csrf}).status_code == 200
+    assert rt.configured.is_set() and rt.sync_requested.is_set() and calls == [(payload['url'],payload['ticket'])]
+
+
+def test_login_wakes_existing_sync_wait_instead_of_waiting_half_hour(monkeypatch):
+    monkeypatch.setattr(app, 'hosted', lambda: False)
+    called = threading.Event()
+    calls = []
+    def sync():
+        calls.append(True);called.set();return {'errors':{}}
+    monkeypatch.setattr(app, 'sync_all', sync)
+    stop, configured, requested = threading.Event(), threading.Event(), threading.Event()
+    configured.set()
+    worker = threading.Thread(target=app._sync_loop, args=(stop,configured,requested))
+    worker.start()
+    try:
+        assert called.wait(3)
+        called.clear();requested.set()
+        assert called.wait(3) and len(calls) >= 2
+    finally:
+        stop.set();worker.join(3)
+    assert not worker.is_alive()
+
+
+def test_failed_first_sync_retries_after_thirty_seconds(monkeypatch):
+    monkeypatch.setattr(app, 'hosted', lambda: False)
+    now, calls = [0.0], []
+    class ClockStop:
+        done = False
+        def is_set(self):return self.done
+        def wait(self, seconds):now[0] += seconds;return self.done
+    stop = ClockStop()
+    def sync():
+        calls.append(now[0])
+        if len(calls) == 2:stop.done = True
+        return {'errors':{'blackboard':'network failure'}}
+    monkeypatch.setattr(app.time, 'monotonic', lambda: now[0])
+    monkeypatch.setattr(app, 'sync_all', sync)
+    app._sync_loop(stop)
+    assert calls == [0,30]
 
 
 def test_local_material_endpoints_and_retired_monitor_preserved(instance):

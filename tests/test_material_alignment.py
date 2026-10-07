@@ -1,5 +1,6 @@
 from datetime import date
 import hashlib
+import os
 
 from sustech_dashboard.core import attachment_key, download_name
 from sustech_dashboard.materials_local import LocalMaterials
@@ -28,6 +29,7 @@ def test_readable_names_collisions_and_revisions_preserve_every_file(tmp_path):
     assert download_name('讲义.pdf'.encode().decode('latin-1')) == '讲义.pdf'
     path = registry.root/third['path']
     path.write_bytes(b'edited')
+    os.utime(path, ns=(third['mtime_ns'], third['mtime_ns']))
     assert registry.inventory()[0]['status'] == 'modified'
     path.unlink()
     assert registry.inventory()[0]['status'] == 'missing'

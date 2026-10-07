@@ -75,7 +75,9 @@ class LocalMaterials:
             if path.resolve().is_relative_to(self.root.resolve()) and path.is_file():
                 stat = path.stat()
                 status = r['status']
-                if stat.st_size != r.get('size') or (stat.st_mtime_ns != r.get('mtime_ns') and file_digest(path) != r.get('sha256')):
+                # Coarse filesystem timestamps and preserved mtimes cannot prove
+                # that same-size bytes are unchanged. Inventory runs every 30s.
+                if stat.st_size != r.get('size') or file_digest(path) != r.get('sha256'):
                     status = 'modified'
             result.append({**r, 'status': status})
         return result

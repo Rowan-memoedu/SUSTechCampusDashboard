@@ -107,3 +107,18 @@ def load_credentials() -> tuple[str, str]:
     if not sid or not password:
         raise RuntimeError("本机凭据内容无效")
     return sid, password
+
+
+def save_paired_credentials(sid: str, password: str) -> None:
+    """A verified one-use handoff may refresh the password of the same owner."""
+    if not CREDENTIALS_PATH.exists():
+        save_credentials(sid, password)
+        return
+    owner, previous = load_credentials()
+    if owner != sid:
+        raise ValueError('此电脑已有另一校园账号，未覆盖本机凭据')
+    if previous == password:
+        return
+    from .core import save_json
+    _restrict_directory(DATA_ROOT)
+    save_json(CREDENTIALS_PATH, {'sid': sid, 'password_dpapi': protect_password(password)})

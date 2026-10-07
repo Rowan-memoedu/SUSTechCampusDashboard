@@ -44,3 +44,40 @@ def test_public_login_pairs_internal_account_without_cas_password(monkeypatch,tm
         assert not path.exists()
     assert 'never-upload-cas-password' not in str(calls)
     assert all(call[0].startswith('https://dashboard.test/') for call in calls)
+
+
+@pytest.mark.parametrize('tampered', [False, True])
+def test_native_cold_bootstrap_persists_only_authenticated_encrypted_handoff(monkeypatch,tmp_path,tampered):
+    from sustech_dashboard import authentication
+    from sustech_dashboard.credential_transfer import seal
+    monkeypatch.setattr(pairing,'os',SimpleNamespace(name='nt',environ={}))
+    monkeypatch.setattr(authentication,'current_credentials',lambda:None)
+    monkeypatch.setattr(pairing,'DATA_ROOT',tmp_path)
+    config=tmp_path/'pair.json';monkeypatch.setattr(download_agent,'CONFIG',config)
+    monkeypatch.setattr(dpapi_store,'CREDENTIALS_PATH',tmp_path/'credentials.json')
+    monkeypatch.setattr(dpapi_store,'_restrict_directory',lambda path:None)
+    monkeypatch.setattr(dpapi_store,'protect_password',lambda value:'encrypted-'+value)
+    saved=[]
+    monkeypatch.setattr(dpapi_store,'save_paired_credentials',lambda *args:saved.append(args))
+    monkeypatch.setattr(authentication,'set_credentials',lambda *args:None)
+    monkeypatch.setattr(authentication,'clear_credentials',lambda:None)
+    class Session:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def post(self,url,**kwargs):
+            payload=kwargs['json']
+            if url.endswith('/exchange'):
+                assert payload['sid'] is None and 'fixture-password' not in str(payload)
+                envelope=seal(payload['bootstrap_key'],('fixture-student','fixture-password'),payload['ticket'],payload['device'])
+                if tampered:envelope['ciphertext']='AA'
+                return SimpleNamespace(status_code=200,json=lambda:{'token':'t'*43,'id':'grant','intent':{'kind':'connect'},'bootstrap':envelope})
+            return SimpleNamespace(raise_for_status=lambda:None)
+    monkeypatch.setattr(pairing.requests,'Session',Session)
+    args=('https://124.221.144.155/spaces/'+'f'*24,'g'*43)
+    if tampered:
+        with pytest.raises(ValueError):pairing.connect_ticket(*args)
+        assert not config.exists() and not saved
+    else:
+        assert pairing.connect_ticket(*args)['ok']
+        assert saved==[('fixture-student','fixture-password')]
+        assert 'fixture-password' not in config.read_text()

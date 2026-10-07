@@ -41,7 +41,6 @@ def child(role, root):
     from sustech_dashboard.materials_store import MaterialsStore
     venues.catalog = lambda: {'library': [], 'ehall': [], 'errors': []}
     venues.library_mine = venues.eh_mine = lambda *a, **k: []
-    authentication.load_owner_credentials = lambda: role == 'local'
     authentication.secure_upstream = lambda: None
     printing.check_network = lambda: None
     printing.overview = lambda: {'stations': [], 'jobs': [], 'scans': [], 'updated_at': '2026-10-07T00:00:00+08:00'}
@@ -60,16 +59,21 @@ def child(role, root):
     app.Blackboard = School
     from sustech_dashboard import provider
     provider.Blackboard = School
-    rt = runtime.Runtime(); rt.configured.set()
+    rt = runtime.Runtime()
     if role == 'cloud':
         from sustech_dashboard.hosted import Space
         space = Space(); space.redeem(space.invite(), 'fixture-panel-password')
-        space.bind('fixture-student', 'fixture-cas-password', False, lambda *a: None)
-    else:
-        from sustech_dashboard.dpapi_store import save_credentials
-        save_credentials('fixture-student', 'fixture-cas-password')
-        from sustech_dashboard.download_agent import local_agent
-        threading.Thread(target=local_agent, args=(rt.stop,), daemon=True).start()
+    # Neither instance starts with campus credentials. Only the user's single
+    # hosted login may activate the cloud and bootstrap the empty native client.
+    def fixture_sync():
+        assert authentication.current_credentials() == ('fixture-student', 'fixture-cas-password')
+        save_json(app.SNAPSHOT_PATH, {'updated_at': '2026-10-07', 'blackboard_courses': manifest['courses'],
+            'assignments': [{'course_id':'fixture-course','content_id':'fixture-task','course':'Fixture course',
+                'name':'Fixture assignment','status':'not_submitted'}], 'errors':{}})
+        return {'errors':{}}
+    app.sync_all = fixture_sync
+    app._materials_loop = lambda stop, configured: stop.wait()
+    rt.start_workers()
     from werkzeug.serving import make_server, WSGIRequestHandler
     class Quiet(WSGIRequestHandler):
         def log_request(self, *args, **kwargs): pass
@@ -105,6 +109,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--node', required=True)
     parser.add_argument('--chrome', required=True)
+    parser.add_argument('--direct', action='store_true', help='Verify a remembered panel session without an initial desktop wait')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix='connection-', dir=args.output))
@@ -114,7 +119,7 @@ def main():
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0)); return sock.getsockname()[1]
     config = {'local_port': port(), 'cloud_port': port(), 'private_port': port(), 'root': str(root),
-              'python': sys.executable, 'script': str(Path(__file__).resolve()), 'chrome': args.chrome}
+              'python': sys.executable, 'script': str(Path(__file__).resolve()), 'chrome': args.chrome, 'direct':args.direct}
     config.update(host='127.0.0.1:'+str(config['cloud_port']), origin='https://127.0.0.1:'+str(config['cloud_port']))
     (root/'config.json').write_text(json.dumps(config))
     from cryptography import x509
@@ -152,12 +157,16 @@ def main():
         if result.returncode:
             raise RuntimeError(result.stderr[-2000:]+'; private logs: '+str(root))
         report = json.loads(result.stdout)
+        from sustech_dashboard import dpapi_store
+        dpapi_store.CREDENTIALS_PATH = root/'local/credentials.dpapi.json'
+        assert dpapi_store.load_credentials() == ('fixture-student', 'fixture-cas-password')
         assert len((root/'opened.jsonl').read_text().splitlines()) == 3
         receipts = json.loads((root/'local/downloaded-files.json').read_text())
         import hashlib
         for receipt in receipts.values():
             assert hashlib.sha256((root/'files'/receipt['path']).read_bytes()).hexdigest() == receipt['sha256']
-        report.update(file_hashes_verified=len(receipts), native_open_dispatches=3, school_business_writes=0)
+        report.update(file_hashes_verified=len(receipts), native_open_dispatches=3, school_business_writes=0,
+                      empty_client_bootstrap=True, campus_credentials_entries=1)
         (args.output/'connection-report.json').write_text(json.dumps(report, indent=2))
         print(json.dumps(report))
     finally:

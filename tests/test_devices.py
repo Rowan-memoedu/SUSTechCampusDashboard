@@ -98,6 +98,27 @@ def test_real_hosted_cookie_grant_identity_and_nginx_bearer_scope(monkeypatch, t
     assert call(machine, 'post', '/api/materials/agent', headers={**bearer, **browser}, json={'agent_id': 'b'*32}).status_code == 403
     assert call(machine, 'post', '/api/devices/exchange', json=payload, headers={'X-Campus-Agent': '1'}).status_code == 400
 
+    # Cold native client: the browser's one-use grant carries an encrypted
+    # bootstrap, not a second login or a plaintext credential endpoint.
+    from sustech_dashboard.credential_transfer import X25519PrivateKey, public_key, unseal
+    monkeypatch.setattr(authentication, '_active_credentials', ('fixture-student', 'fixture-cas-password'))
+    private = X25519PrivateKey.generate()
+    def issue():
+        grant = call(client, 'post', '/api/devices/grant', headers=browser, json={'kind':'connect'}).json
+        return parse_qs(urlsplit(grant['uri']).fragment)['ticket'][0]
+    bootstrap = {'ticket': issue(), 'device':'c'*32, 'bootstrap_key':public_key(private)}
+    assert call(machine, 'post', '/api/devices/exchange', json={**bootstrap,'sid':'other-student'}, headers={'X-Campus-Agent':'1'}).status_code == 403
+    assert call(machine, 'post', '/api/devices/exchange', json={**bootstrap,'bootstrap_key':'invalid'}, headers={'X-Campus-Agent':'1'}).status_code == 400
+    assert call(machine, 'post', '/api/devices/exchange', json=bootstrap, headers={'X-Campus-Agent':'1','Origin':'https://dashboard.test'}).status_code == 403
+    result = call(machine, 'post', '/api/devices/exchange', json=bootstrap, headers={'X-Campus-Agent':'1'})
+    assert result.status_code == 200
+    assert 'fixture-cas-password' not in result.text and 'fixture-student' not in result.text
+    assert unseal(private, result.json['bootstrap'], bootstrap['ticket'], bootstrap['device']) == authentication.current_credentials()
+    assert call(machine, 'post', '/api/devices/exchange', json=bootstrap, headers={'X-Campus-Agent':'1'}).status_code == 400
+    for path in root.glob('*.sqlite3'):
+        assert b'fixture-cas-password' not in path.read_bytes()
+    assert space.credentials() is None  # Cloud remember=False still bootstraps this running login.
+
 
 def test_paired_downloads_claim_one_queue_and_acknowledge_only_owner(monkeypatch, tmp_path):
     from sustech_dashboard import download_agent as agent

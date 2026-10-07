@@ -1,18 +1,19 @@
 /* Browser session authorizes a one-use handoff; Windows starts the client if needed. */
 (async()=>{
-  const saved=sessionStorage.getItem('campus-desktop-handoff');if(!saved)return;
-  const pending=JSON.parse(saved),message=node('p','正在后台连接当前电脑…','notice');message.id='computer-auto-message';message.setAttribute('role','status');document.querySelector('main').prepend(message);
+  const saved=sessionStorage.getItem('campus-desktop-handoff'),direct=sessionStorage.getItem('campus-desktop-grant');if(!saved&&!direct)return;
+  const pending=saved?JSON.parse(saved):null,message=node('p','正在后台连接当前电脑…','notice');message.id='computer-auto-message';message.setAttribute('role','status');document.querySelector('main').prepend(message);
   try {
     const instance=await campusJson('/api/instance');
     if(!instance.configured){message.textContent='校园账号绑定完成后将自动连接当前电脑。';return;}
-    const grant=await campusPost('/api/devices/grant',{kind:'connect'});
-    const response=await fetch('/app/desktop/authorize',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':pending.csrf},body:JSON.stringify({key:pending.key,uri:grant.uri})});
-    if(!response.ok)throw Error('自动连接暂未完成，可在打印或下载区点击连接电脑重试。');
-    sessionStorage.removeItem('campus-desktop-handoff');
+    const grant=direct?JSON.parse(direct):await campusPost('/api/devices/grant',{kind:'connect'});
+    if(!direct){
+      const response=await fetch('/app/desktop/authorize',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':pending.csrf},body:JSON.stringify({key:pending.key,uri:grant.uri})});
+      if(!response.ok)throw Error('自动连接暂未完成，可在打印或下载区点击连接电脑重试。');
+    }
     for(let i=0;i<90;i++){
       await new Promise(resolve=>setTimeout(resolve,2000));
       const result=await campusJson('/api/devices/grants/'+grant.id);
-      if(result.state==='connected'){message.textContent='当前电脑已自动连接，打印和下载组件正在后台运行。';window.dispatchEvent(new Event('campus-computer-connected'));return;}
+      if(result.state==='connected'){sessionStorage.removeItem('campus-desktop-handoff');sessionStorage.removeItem('campus-desktop-grant');message.textContent='当前电脑已自动连接，打印和下载组件正在后台运行。';window.dispatchEvent(new Event('campus-computer-connected'));return;}
       if(result.state==='expired')break;
     }
     message.textContent='未收到本机组件响应。请运行最新版客户端后，在打印或下载区点击连接电脑重试。';

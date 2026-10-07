@@ -38,6 +38,7 @@ class Runtime:
         self.stop = threading.Event()
         self.ready = threading.Event()
         self.configured = threading.Event()
+        self.sync_requested = threading.Event()
         self.configure_lock = threading.Lock()
         self.guard = threading.Condition()
         self.active_writes = 0
@@ -62,7 +63,9 @@ class Runtime:
         def after_login(fn):
             while not self.stop.is_set():
                 if self.configured.wait(1):
-                    if fn in {_sync_loop, _materials_loop}:
+                    if fn is _sync_loop:
+                        fn(self.stop, self.configured, self.sync_requested)
+                    elif fn is _materials_loop:
                         fn(self.stop, self.configured)
                     else:
                         fn(self.stop)
@@ -83,6 +86,9 @@ class Runtime:
         from .execution import hosted
         if not hosted():
             threading.Thread(target=versions, daemon=True, name="version-check").start()
+
+    def request_sync(self):
+        self.sync_requested.set()
 
     def start_print_agent(self):
         from .execution import mode
@@ -178,10 +184,13 @@ def child_command(executable, port):
     return [str(executable), "-m", "sustech_dashboard.client", "--backend", "--port", str(port)]
 
 
-def supervise(port=18765, open_browser=True):
+def supervise(port=18765, open_browser=True, local_only=False):
     from .updates import release_executable
     prepare_private_directory()
     url = f"http://127.0.0.1:{port}/#access={owner_token()}"
+    from .dpapi_store import CREDENTIALS_PATH
+    if os.name == 'nt' and not local_only and not CREDENTIALS_PATH.exists():
+        url = 'https://' + os.environ.get('SUSTECH_PAIR_HOST', '124.221.144.155') + '/app/'
     try:
         lock = exclusive_file(DATA_ROOT / "client.lock")
         lock.__enter__()

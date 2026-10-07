@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="南科大校园面板个人客户端")
     parser.add_argument("--backend", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--local-only", action="store_true", help="直接进入纯本机模式，校园凭据不上传本站")
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--agent", action="store_true", help="连接自己服务器的执行主机客户端（附件下载与打印）")
@@ -43,7 +44,7 @@ def main():
         agent()
         return 0
     from .runtime import backend, supervise
-    return backend(args.port) if args.backend else supervise(args.port, not args.no_browser)
+    return backend(args.port) if args.backend else supervise(args.port, not args.no_browser, args.local_only)
 
 
 if __name__ == "__main__":

@@ -85,12 +85,12 @@ def scan_materials() -> dict:
             save_json(MANIFEST_PATH, manifest)
         from .materials_store import MaterialsStore
         MaterialsStore(MATERIALS_DB).scan_finished(manifest)
+        _scan_last = time.monotonic()
         return manifest
     except Exception as exc:
         _scan_state["error"] = _public_error(exc)
         raise
     finally:
-        _scan_last = time.monotonic()
         _scan_state["running"] = False
         _scan_lock.release()
 
@@ -413,6 +413,7 @@ def create_app(runtime=None) -> Flask:
     def status():
         local_request()
         snapshot = load_json(SNAPSHOT_PATH, {"updated_at": None, "errors": {"sync": "尚未完成首次同步"}})
+        snapshot['syncing'] = _sync_lock.locked()
         if CLOUD:
             snapshot["downloads"] = load_json(DATA_ROOT / "download-status.json", {"mode": "agent"})
         return jsonify(snapshot)
@@ -609,20 +610,29 @@ def create_app(runtime=None) -> Flask:
     return app
 
 
-def _sync_loop(stop: threading.Event, configured=None) -> None:
+def _sync_loop(stop: threading.Event, configured=None, requested=None) -> None:
+    def wait(seconds):
+        deadline = time.monotonic() + seconds
+        while not stop.is_set() and time.monotonic() < deadline:
+            if requested is not None and requested.is_set():
+                requested.clear()
+                return
+            stop.wait(min(1, max(0, deadline - time.monotonic())))
     if hosted():
         from .hosted import space_id
-        if stop.wait(int(space_id()[:4], 16) % 30):
-            return
+        wait(int(space_id()[:4], 16) % 30)
     while not stop.is_set():
         if configured is not None and not configured.is_set():
             stop.wait(1)
             continue
+        interval = 30  # A failed first read must not leave an empty dashboard for half an hour.
         try:
-            sync_all()
+            result = sync_all()
+            if not any(source in result.get('errors', {}) for source in ('sync', 'blackboard', 'tis', 'attachments')):
+                interval = SYNC_INTERVAL_SECONDS
         except Exception as exc:
             logging.error("Campus sync failed: %s", type(exc).__name__)
-        stop.wait(SYNC_INTERVAL_SECONDS)
+        wait(interval)
 
 
 def serve(port: int = DASHBOARD_PORT) -> None:

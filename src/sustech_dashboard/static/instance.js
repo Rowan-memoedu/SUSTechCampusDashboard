@@ -1,7 +1,23 @@
 (()=>{
   const form=document.getElementById('owner-login');
   async function post(path,data){const r=await fetch(apiBase+path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(data||{})});const value=await r.json();if(!r.ok)throw Error(value.error||'请求失败');return value;}
-  if(form)form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('button'),message=document.getElementById('login-message');button.disabled=true;message.textContent='正在连接学校验证账号…';try{await post('/api/instance/login',{sid:form.elements.sid.value,password:form.elements.password.value,remember:form.elements.remember.checked,consent:form.elements.consent?.checked===true});form.elements.password.value='';location.replace(apiBase+'/');}catch(e){message.textContent=e.message;form.elements.password.value='';button.disabled=false;}});
+  if(form)form.addEventListener('submit',async event=>{
+    event.preventDefault();const button=form.querySelector('button'),message=document.getElementById('login-message');button.disabled=true;message.textContent='正在连接学校验证账号…';
+    try{
+      await post('/api/instance/login',{sid:form.elements.sid.value,password:form.elements.password.value,remember:form.elements.remember.checked,consent:form.elements.consent?.checked===true});
+      form.elements.password.value='';
+      if(apiBase.startsWith('/spaces/')&&/Windows/.test(navigator.userAgent)){
+        const pending=JSON.parse(sessionStorage.getItem('campus-desktop-handoff')||'null');
+        if(!pending||!pending.started||Date.now()-pending.started>480000){
+          // A remembered panel session or an expired initial wait must not require
+          // another campus login. The verified browser can launch its own grant.
+          sessionStorage.removeItem('campus-desktop-handoff');
+          try{const grant=await post('/api/devices/grant',{kind:'connect'});sessionStorage.setItem('campus-desktop-grant',JSON.stringify({id:grant.id}));const launch=document.createElement('a');launch.href=grant.uri;launch.click();}catch{sessionStorage.removeItem('campus-desktop-grant');}
+        }
+      }
+      location.replace(apiBase+'/');
+    }catch(e){message.textContent=e.message;form.elements.password.value='';button.disabled=false;}
+  });
   const disconnect=document.getElementById('disconnect-school');if(disconnect)disconnect.onclick=async()=>{disconnect.disabled=true;try{await post('/api/instance/disconnect');document.getElementById('disconnect-message').textContent='已断开学校账号，后台同步已停止，保存的 CAS 凭据已清除。';}catch(e){document.getElementById('disconnect-message').textContent=e.message;}finally{disconnect.disabled=false;}};
   const info=document.getElementById('instance-info');if(!info)return;
   const passwordForm=document.getElementById('panel-password');if(passwordForm)passwordForm.onsubmit=async event=>{event.preventDefault();const button=passwordForm.querySelector('button');button.disabled=true;try{const result=await post('/api/instance/password',{previous:passwordForm.elements.previous.value,password:passwordForm.elements.password.value});passwordForm.reset();location.replace(result.login_url);}catch(e){passwordForm.reset();document.getElementById('password-message').textContent=e.message;}finally{button.disabled=false;}};

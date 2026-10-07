@@ -5,6 +5,13 @@ from pathlib import Path
 
 from .paths import DATA_ROOT
 
+_active_credentials = None
+
+
+def current_credentials():
+    """Process-only credentials, never included in browser responses or grant storage."""
+    return _active_credentials
+
 
 def strict_cas_session(self):
     import requests
@@ -22,6 +29,7 @@ def secure_upstream():
 
 
 def set_credentials(sid, password):
+    global _active_credentials
     secure_upstream()
     if not isinstance(sid, str) or not isinstance(password, str) or not sid.strip() or not password:
         raise ValueError("请输入学号和 CAS 密码")
@@ -29,9 +37,12 @@ def set_credentials(sid, password):
         raise ValueError("账号或密码格式无效")
     from sustech_survival.sso import cred_set
     cred_set(sid=sid.strip(), pwd=password)
+    _active_credentials = (sid.strip(), password)
 
 
 def clear_credentials():
+    global _active_credentials
+    _active_credentials = None
     from sustech_survival.sso import cred_clear
     from sustech_survival.sso.authorizer import Authorizer
     cred_clear()

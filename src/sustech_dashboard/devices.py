@@ -101,6 +101,20 @@ def register_devices(app, guard, account, path):
         space = Space()
         payload = request.get_json(silent=True) or {}
         sid = payload.get('sid')
+        bootstrap = None
+        if payload.get('bootstrap_key') is not None:
+            from .authentication import current_credentials
+            from .credential_transfer import seal
+            credentials = current_credentials()
+            if not credentials:
+                return jsonify(error='校园登录已结束，请在公共入口重新登录校园账号'), 409
+            if sid is not None and sid != credentials[0]:
+                return jsonify(error='本机校园账号与当前网页空间不一致，未连接'), 403
+            sid = credentials[0]
+            try:
+                bootstrap = seal(payload['bootstrap_key'], credentials, payload.get('ticket'), payload.get('device'))
+            except (ValueError, TypeError):
+                abort(400)
         if not isinstance(sid, str) or not 1 <= len(sid) <= 128:
             abort(400)
         identity = hmac.new(space.key_bytes(), sid.encode(), hashlib.sha256).hexdigest()
@@ -109,7 +123,10 @@ def register_devices(app, guard, account, path):
         if not bound or not secrets.compare_digest(bound, identity):
             return jsonify(error='本机校园账号与当前网页空间不一致，未连接'), 403
         try:
-            return jsonify(store.redeem(payload.get('ticket'), account(), payload.get('device'), payload.get('previous')))
+            result = store.redeem(payload.get('ticket'), account(), payload.get('device'), payload.get('previous'))
+            if bootstrap is not None:
+                result['bootstrap'] = bootstrap
+            return jsonify(result)
         except ValueError as exc:
             return jsonify(error=str(exc)), 400
 
