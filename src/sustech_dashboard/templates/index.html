@@ -7,11 +7,11 @@
 <section><div class="heading"><h2>Blackboard 作业</h2><span class="pill unknown" id="assignment-count"></span></div><p class="muted">点击小三角查看描述、要求、附件和提交记录；文件只有在点击“提交作业”后才会上传。</p><div id="assignments"></div></section>
 <section><h2>考试与待评教</h2><h3>后续考试</h3><div id="exams"></div><h3>待评教</h3><div id="evals"></div></section>
 <section class="wide" id="materials-panel"><div class="material-heading"><h2>课程与资料</h2><span id="material-agent" class="pill unknown">正在连接下载代理</span></div>
-<p class="muted">保存位置：{{ download_root }}，按课程及资料目录分类。“浏览器另存”使用浏览器下载目录。批量下载跳过已核验文件，不覆盖已有文件。</p>
+<p class="muted">{% if hosted %}附件直接从学校保存到你的浏览器，云端不存储或转发文件。需要自动归档时，使用自己电脑上的下载组件。{% else %}保存位置：{{ download_root }}，按课程及资料目录分类。学校下载入口使用浏览器下载目录。批量下载跳过已核验文件，不覆盖已有文件。{% endif %}</p>
 <div class="material-toolbar"><label class="material-search">搜索附件<input id="material-search" type="search" placeholder="文件名、课程或资料目录"></label>
 <label>显示<select id="material-filter"><option value="all">全部附件</option><option value="pending">未保存</option><option value="saved">已保存</option><option value="failed">下载失败</option></select></label>
 <button id="material-refresh" type="button" class="secondary">刷新附件清单</button><button id="material-download-all" type="button" disabled>全部资料下载</button></div>
-<div class="material-auto"><label><input type="checkbox" id="material-auto">自动下载新附件</label><span class="muted">仅下载原基线之后新出现的资料；旧资料可用“全部资料下载”。本机离线时保留下载请求。</span></div>
+<div class="material-auto"><label><input type="checkbox" id="material-auto">{{ '本机组件自动保存新资料' if hosted else '自动下载新附件' }}</label><span class="muted">{% if hosted %}面板定时发现新资料；连接自己的下载组件后可自动保存。浏览器下载请使用学校入口。{% else %}仅下载原基线之后新出现的资料；旧资料可用“全部资料下载”。本机离线时保留下载请求。{% endif %}</span></div>
 <p id="material-summary" class="muted">正在读取附件清单…</p><div id="material-message" class="notice" hidden role="status"></div><div id="material-jobs"></div><div id="material-courses"></div></section>
 <section class="wide" id="venues-panel"><div class="heading"><h2>场地与预约</h2><button id="venues-refresh" class="secondary" type="button">刷新场地</button></div>
 <p class="muted">进入预约页可查看具体占用、先输入目标时段筛选空闲场地，以及查询和管理我的预约。</p><div id="venues-message"></div>

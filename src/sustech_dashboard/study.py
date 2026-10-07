@@ -11,7 +11,8 @@ from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from .core import CHINA_TZ, DATA_ROOT
-from .provider import COURSE_CUTOFF
+from .execution import course_cutoff
+from .provider import COURSE_CUTOFF  # Legacy public constant; filtering uses the instance setting.
 from .actions import mark_sent
 
 lock = threading.RLock()
@@ -62,7 +63,7 @@ def semester(xn=None, xq=None):
         raise ValueError('学期格式无效')
     y = int(xn[:4])
     start = date(y,9,1) if xq == '1' else date(y+1,2 if xq == '2' else 7,1)
-    if start < COURSE_CUTOFF or start.year > datetime.now(CHINA_TZ).year+1:
+    if start < course_cutoff() or start.year > datetime.now(CHINA_TZ).year+1:
         raise ValueError('只支持 2026 年 9 月起的学期')
     return Semester(xn, xq)
 
@@ -328,7 +329,7 @@ def grades():
         all_rows.extend(content['list'])
         if not content.get('hasNextPage') and len(all_rows)>=int(content.get('total',len(all_rows))):break
     else:raise ValueError('成绩分页超出范围，请到教务系统核对')
-    rows=[normalize_grade(r) for r in all_rows if grade_term(r) and grade_term(r)>=COURSE_CUTOFF]
+    rows=[normalize_grade(r) for r in all_rows if grade_term(r) and grade_term(r)>=course_cutoff()]
     terms=sorted({r['semester'] for r in rows},reverse=True)
     result={'rows':rows,'summary':grade_summary(rows),'semesters':[{**grade_summary([r for r in rows if r['semester']==s]),'name':s} for s in terms],
         'unclassified':sum(grade_term(r) is None for r in all_rows),'updated_at':now(),'source':HANDBOOK,

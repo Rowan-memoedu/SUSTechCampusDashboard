@@ -4,6 +4,8 @@
 
 安装与运行见 [客户端说明](CLIENT-README.md)，更新、签名与维护流程见 [UPDATING.md](UPDATING.md)。现有拥有者实例仍使用个人服务器和配对电脑下载，不改变原有数据归属。
 
+0.3.0 增加邀请制托管空间：独立 Linux 用户、进程、目录、加密凭据与会话，首批最多 5 人。可证明一致的公共信息合并刷新；课程目录仍逐人核验权限，已授权元数据用公共对象与个人引用去重。附件通过学校官方入口或自己的本机组件直接下载，云端不读取或转发文件。实现、验收与运维以 [第一阶段交付记录](docs/HOSTED-PHASE1.md) 为准；原路线见 [Web 托管试用计划](docs/WEB-HOSTED-PLAN.md)，后期本机连接与迁移见 [本机模式衔接说明](docs/LOCAL-MODE-HANDOFF.md)。
+
 ## 每日概览与课表
 
 - 显示今日课程、校历放假及调休安排、未提交作业与剩余时间、考试和待评教。
@@ -31,7 +33,7 @@
 
 ## 课程附件
 
-按课程查看；每个附件可保存到本机 D 盘或直接用浏览器下载；支持分课程全部下载、所有附件全部下载和失败重试。
+按课程查看；网页先打开学校下载指引。学校会话失效时在官方内容页登录，再下载到浏览器目录。自动按课程归档、批量下载和失败重试由自己的本机组件完成，组件用本机校园凭据直接连接学校。
 
 自动模式在后台每 5 分钟扫描新可见附件，加载到新附件后加入下载队列。首次启用的 58 项附件 ID 基线保留，自动模式只补下载此后新可见资料；手动全部下载包含旧附件。尚未开放目录显示访问限制，之后开放时算新可见资料。
 
@@ -56,7 +58,7 @@ pwsh -NoProfile -File 'D:\Projects\SUSTechCampusDashboard\dashboard.ps1' booking
 
 Windows 的 `start` / `serve` 命令启动本机客户端，`open-server` 打开已配对服务器。现有 Windows 登录任务 `SUSTechCampusDashboard` 继续启动个人服务器的下载代理。本机数据位于 `D:\AppData\SUSTechCampusDashboard`，依赖环境在 `D:\Caches\SUSTechCampusDashboard-venv`。凭据使用 Windows DPAPI，仅在当前用户进程内解密。
 
-现有服务器运行可分发客户端 `/opt/sustech-campus-client/campus-client`，账户 `sustechmon`、数据 `/var/lib/sustech-room-monitor/dashboard`；数据目录沿用原部署。`sustech-campus-dashboard.service` 经 nginx 私人 HTTPS 路由及独立密码保护，CAS 使用 systemd 加密凭据。附件经转发，不在服务器长期保存。旧 Python 环境保留供部署恢复；监控服务维持停用。
+拥有者实例沿用账户 `sustechmon`、数据 `/var/lib/sustech-room-monitor/dashboard` 和 `/opt/sustech-campus-client/campus-client` 启动器，由原有签名更新机制选择运行包。`sustech-campus-dashboard.service` 经 nginx 私人 HTTPS 路由及独立密码保护，CAS 使用 systemd 加密凭据。0.3.0 的云端附件入口只提供学校定位信息；实际安装版本和验收见交付记录。旧恢复环境保留，监控服务维持停用。
 
 运行快照、凭据、基线、下载资料、数据库及日志均不进入 Git。上游固定提交 `acd20323af6d3bc91c3e89974283d39d85109678`。
 

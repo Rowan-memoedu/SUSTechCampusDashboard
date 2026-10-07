@@ -37,7 +37,9 @@ class LocalMaterials:
         if old.get("path"):
             path = self.root / old["path"]
             if path.resolve().is_relative_to(self.root.resolve()) and path.is_file():
-                if path.stat().st_size == old.get("size") and file_digest(path) == old.get("sha256"):
+                if not item.get('source_version') or old.get('source_version') == item['source_version']:
+                    if path.stat().st_size != old.get("size") or file_digest(path) != old.get("sha256"):
+                        raise FileExistsError("已保存文件被修改，保留原文件；请用浏览器另存下载")
                     corrected=material_path(self.root,item)
                     if path!=corrected and path.suffix!=corrected.suffix and corrected.suffix and not corrected.exists():
                         corrected.parent.mkdir(parents=True,exist_ok=True)
@@ -46,8 +48,10 @@ class LocalMaterials:
                         self.receipts[key]=old
                         save_json(self.state_path,self.receipts)
                     return {**old, "status": "existing"}
-                raise FileExistsError("已保存文件被修改，保留原文件；请用浏览器另存下载")
         path = material_path(self.root, item)
+        if item.get('source_version') and old.get('path'):
+            suffix = hashlib.sha256(item['source_version'].encode()).hexdigest()[:10]
+            path = path.with_name(path.stem + '-v' + suffix + path.suffix)
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             raise FileExistsError("目标已有文件，未覆盖；请用浏览器另存下载")
@@ -55,7 +59,7 @@ class LocalMaterials:
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError("下载返回空文件")
         receipt = {"key": key, "status": "saved", "size": path.stat().st_size,
-                   "sha256": file_digest(path), "path": str(path.relative_to(self.root))}
+                   "sha256": file_digest(path), "path": str(path.relative_to(self.root)), 'source_version': item.get('source_version', '')}
         self.receipts[key] = receipt
         save_json(self.state_path, self.receipts)
         return receipt

@@ -17,9 +17,9 @@
   }
   function render(){
     if(!data)return;
-    const agent=data.agent||{}, badge=$('material-agent');badge.textContent=agent.online?'本机下载代理在线':'本机下载代理离线';badge.className=`pill ${agent.online?'':'unknown'}`;
+    const agent=data.agent||{}, badge=$('material-agent');badge.textContent=agent.online?'本机直连下载组件在线':data.school_direct?'浏览器从学校直接下载':'本机下载代理离线';badge.className=`pill ${agent.online?'':'unknown'}`;
     $('material-auto').checked=!!data.auto_enabled;
-    $('material-download-all').disabled=!(data.items||[]).length;
+    $('material-download-all').disabled=!(data.items||[]).length||!!data.hosted&&!agent.online;
     $('material-refresh').disabled=!!data.scan?.running;
     $('material-refresh').textContent=data.scan?.running?'正在扫描…':'刷新附件清单';
     const total=(data.items||[]).length, done=(data.items||[]).filter(i=>saved(i.local_status)).length;
@@ -28,7 +28,8 @@
     if(agent.current_file)jobs.append(node('div',`当前下载：${agent.current_file}`,'muted'));
     if(data.scan?.error)jobs.append(node('div',`附件刷新失败：${data.scan.error}；下面保留上次可见清单。`,'notice'));
     (data.warnings||[]).forEach(w=>jobs.append(node('div',w,'notice')));
-    if(!data.baseline_ready)jobs.append(node('div','等待本机确认原有附件基线，暂不自动下载旧资料。','muted'));
+    if(data.school_direct)jobs.append(node('div','资料从学校直接到你的设备。需要时请在学校页面登录；打开入口不代表本机已保存。批量自动保存需要自己的本机下载组件。','muted'));
+    if(!data.baseline_ready)jobs.append(node('div','等待首次成功扫描建立个人基线。','muted'));
     const visibleJobs=(data.jobs||[]).filter(j=>['queued','running','partial','failed'].includes(j.state));
     if(!visibleJobs.length&&(data.jobs||[]).length)visibleJobs.push(data.jobs[0]);
     visibleJobs.slice(0,6).forEach(j=>{
@@ -50,7 +51,7 @@
       details.addEventListener('toggle',()=>{if(details.open)openCourses.add(course.id);else openCourses.delete(course.id);});
       const summary=node('summary'), count=all.filter(i=>saved(i.local_status)).length;
       summary.append(node('strong',course.name),node('span',`${all.length} 个附件 · ${count} 个已保存`,'muted'));
-      const bulk=node('button','课程全部下载','secondary');bulk.disabled=!all.length;bulk.onclick=e=>{e.preventDefault();e.stopPropagation();requestDownload({scope:'course',course_id:course.id},bulk);};summary.append(bulk);details.append(summary);
+      const bulk=node('button','课程全部下载','secondary');bulk.disabled=!all.length||!!data.hosted&&!agent.online;bulk.onclick=e=>{e.preventDefault();e.stopPropagation();requestDownload({scope:'course',course_id:course.id},bulk);};summary.append(bulk);details.append(summary);
       const list=node('div','','material-files');
       if(!items.length)empty(list,'该课程暂无当前可访问的附件');
       items.forEach(i=>{
@@ -60,8 +61,8 @@
         if(i.error)main.append(node('div',i.error,'material-file-sub'));
         const actions=node('div','','material-file-actions');actions.append(node('span',stateText[i.local_status]||i.local_status,`pill ${i.local_status==='failed'?'overdue':saved(i.local_status)?'':'unknown'}`));
         const download=node('button',saved(i.local_status)?'核验并下载':i.local_status==='failed'?'重试下载':'下载');
-        download.disabled=['queued','running'].includes(i.local_status);download.onclick=()=>requestDownload({scope:'file',key:i.key},download);actions.append(download);
-        const browser=node('a','浏览器另存');browser.href=apiBase+'/api/attachment?key='+encodeURIComponent(i.key);browser.setAttribute('download',i.file_name);actions.append(browser);
+        download.disabled=['queued','running'].includes(i.local_status)||!!data.hosted&&!agent.online;download.onclick=()=>requestDownload({scope:'file',key:i.key},download);actions.append(download);
+        const browser=node('a',data.school_direct?'打开学校下载入口':'浏览器另存');browser.href=apiBase+'/api/attachment?key='+encodeURIComponent(i.key);if(data.school_direct){browser.target='_blank';browser.rel='noopener noreferrer';browser.onclick=()=>message('已打开学校下载入口；请在学校页面登录并查看浏览器下载结果，面板尚未收到本机保存确认。');}else{browser.setAttribute('download',i.file_name);}actions.append(browser);
         entry.append(main,actions);list.append(entry);
       });details.append(list);courses.append(details);
     });

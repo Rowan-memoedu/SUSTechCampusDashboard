@@ -1,5 +1,5 @@
 {% extends 'service_base.html' %}
 {% block content %}
-<section class="wide" data-service="grades"><div class="heading"><h2>成绩与学分概览</h2><button id="grade-refresh">刷新成绩</button></div><p class="muted">仅显示 2026 年 9 月起的课程；在修学分与已获得学分分别统计。</p><div id="service-message" role="status"></div><div class="grid" id="grade-metrics"></div><p id="grade-note" class="muted"></p><a id="grade-source" target="_blank" rel="noopener">计算规则参考：学校学生手册</a></section>
+<section class="wide" data-service="grades"><div class="heading"><h2>成绩与学分概览</h2><button id="grade-refresh">刷新成绩</button></div><p class="muted">{{ '按你的课程起始日期筛选；' if hosted else '仅显示 2026 年 9 月起的课程；' }}在修学分与已获得学分分别统计。</p><div id="service-message" role="status"></div><div class="grid" id="grade-metrics"></div><p id="grade-note" class="muted"></p><a id="grade-source" target="_blank" rel="noopener">计算规则参考：学校学生手册</a></section>
 <section class="wide"><div class="toolbar"><label>学期<select id="grade-term"><option value="">全部学期</option></select></label><label>课程搜索<input id="grade-search" placeholder="课程代码或名称"></label><a class="button secondary" id="grade-export" href="{{ api_base }}/api/grades/export">导出成绩 CSV</a></div><div id="grade-semesters"></div><div id="grade-list"></div></section>
 {% endblock %}

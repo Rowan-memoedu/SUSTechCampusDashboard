@@ -61,7 +61,10 @@ class Runtime:
         def after_login(fn):
             while not self.stop.is_set():
                 if self.configured.wait(1):
-                    fn(self.stop)
+                    if fn in {_sync_loop, _materials_loop}:
+                        fn(self.stop, self.configured)
+                    else:
+                        fn(self.stop)
                     return
         functions = [_sync_loop, _materials_loop]
         if not CLOUD or os.environ.get("SUSTECH_DOWNLOAD_MODE") == "local":
@@ -75,9 +78,14 @@ class Runtime:
                 self.update.check()
                 if self.stop.wait(24 * 3600):
                     return
-        threading.Thread(target=versions, daemon=True, name="version-check").start()
+        from .execution import hosted
+        if not hosted():
+            threading.Thread(target=versions, daemon=True, name="version-check").start()
 
     def begin_install(self):
+        from .execution import hosted
+        if hosted():
+            raise ValueError('托管空间由维护者统一更新')
         if not os.environ.get("SUSTECH_MANAGED_RUNTIME"):
             raise ValueError("源码运行请使用发布包启动后安装更新")
         if not self.configure_lock.acquire(False):

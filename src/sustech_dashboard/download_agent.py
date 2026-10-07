@@ -1,4 +1,4 @@
-"""Download new Blackboard attachments through the private HTTPS dashboard."""
+"""Read private tasks from the dashboard; download bytes directly from school."""
 import json
 import os
 import threading
@@ -62,18 +62,11 @@ class CloudFiles:
         return [i for i in self.manifest["items"] if i["course_id"] == course_id]
 
     def download_attachment(self, course_id, content_id, attachment_id, target: Path):
-        tmp = target.with_name(target.name + ".part")
-        try:
-            with self.session.get(self.url + "/api/attachment", params={
-                "key": attachment_key(course_id, content_id, attachment_id)
-            }, timeout=(10, 240), stream=True) as response, tmp.open("wb") as handle:
-                response.raise_for_status()
-                for chunk in response.iter_content(65536):
-                    if chunk:
-                        handle.write(chunk)
-            tmp.replace(target)
-        finally:
-            tmp.unlink(missing_ok=True)
+        from .authentication import load_owner_credentials
+        from .provider import Blackboard
+        if not load_owner_credentials():
+            raise RuntimeError('请先在本机配置自己的校园账号，附件仅从学校直接下载')
+        Blackboard().download_attachment(course_id, content_id, attachment_id, target)
 
 
 class DownloadBusy(Exception):

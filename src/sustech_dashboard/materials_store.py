@@ -94,6 +94,9 @@ class MaterialsStore:
     def _auto_jobs(self, db, manifest):
         if not self.setting(db, "auto") or not self.setting(db, "baseline_ready", False):
             return
+        from .execution import hosted
+        if hosted() and time.time() - self.setting(db, 'heartbeat', {}).get('epoch', 0) >= 90:
+            return  # Pure Web discovers files; only a paired device accepts file tasks.
         seen = {r[0] for r in db.execute("SELECT key FROM seen")}
         active = set()
         for row in db.execute("SELECT keys FROM jobs WHERE state IN ('queued','running')"):
@@ -113,6 +116,11 @@ class MaterialsStore:
 
     def scan_finished(self, manifest):
         with self.connect(True) as db:
+            from .execution import hosted
+            if hosted() and manifest.get('updated_at') and not self.setting(db, 'baseline_ready', False):
+                keys = [attachment_key(i['course_id'], i['content_id'], i['id']) for i in manifest.get('items', [])]
+                db.executemany('INSERT OR IGNORE INTO seen VALUES (?)', ((key,) for key in keys))
+                self.put(db, 'baseline_ready', True)
             self._auto_jobs(db, manifest)
 
     def agent_poll(self, payload, manifest):

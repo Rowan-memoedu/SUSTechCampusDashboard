@@ -44,6 +44,14 @@ def clear_credentials():
 
 def load_owner_credentials():
     secure_upstream()
+    from .execution import hosted
+    if hosted():
+        from .hosted import Space
+        value = Space().credentials()
+        if value:
+            set_credentials(value['sid'], value['password'])
+            return True
+        return False
     directory = os.environ.get("CREDENTIALS_DIRECTORY")
     if directory:
         value = json.loads((Path(directory) / "sustech-cas").read_text(encoding="utf-8"))

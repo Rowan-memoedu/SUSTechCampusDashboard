@@ -85,6 +85,8 @@ def load_json(path: Path, default: Any) -> Any:
 
 
 def save_json(path: Path, value: Any) -> None:
+    from .quotas import check_private_quota
+    check_private_quota(len(json.dumps(value, ensure_ascii=False).encode()))
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")

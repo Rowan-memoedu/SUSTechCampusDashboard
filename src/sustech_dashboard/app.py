@@ -7,16 +7,18 @@ import json
 import os
 import secrets
 import threading
+import time
 from urllib.parse import quote
 from datetime import date, datetime
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request, Response, stream_with_context, abort
+from flask import Flask, jsonify, render_template, request, Response, stream_with_context, abort, redirect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .core import CHINA_TZ, DASHBOARD_PORT, DATA_ROOT, DOWNLOAD_ROOT, attachment_key, load_json, save_json, sync_attachments, parse_dt, safe_name
 from .provider import Blackboard, read_bookings, read_tis
 from .room_monitor import schedule
+from .execution import mode, hosted, direct_downloads
 
 
 SNAPSHOT_PATH = DATA_ROOT / "snapshot.json"
@@ -24,15 +26,38 @@ BASELINE_PATH = DATA_ROOT / "attachments.json"
 SYNC_INTERVAL_SECONDS = 30 * 60
 _sync_lock = threading.Lock()
 _bb_lock = threading.Lock()
-CLOUD = os.environ.get("SUSTECH_CLOUD") == "1"
+CLOUD = mode() != 'local'
 MANIFEST_PATH = DATA_ROOT / "manifest.json"
 MATERIALS_DB = DATA_ROOT / "materials.sqlite3"
 _scan_state = {"running": False, "error": None}
 _scan_lock = threading.Lock()
+_scan_last = 0.0
+_raw_load_json, _raw_save_json = load_json, save_json
+
+
+def load_json(path, default):
+    value = _raw_load_json(path, default)
+    if hosted() and path in {SNAPSHOT_PATH, MANIFEST_PATH} and value:
+        from .shared_metadata import configured_client, unpack_document
+        return unpack_document(value, configured_client())
+    return value
+
+
+def save_json(path, value):
+    if hosted() and path in {SNAPSHOT_PATH, MANIFEST_PATH}:
+        from .shared_metadata import configured_client, pack_document
+        value = pack_document(value, configured_client())
+    _raw_save_json(path, value)
 
 
 def scan_materials() -> dict:
+    global _scan_last
+    from .quotas import check_private_quota
+    check_private_quota()
     if not _scan_lock.acquire(blocking=False):
+        return load_json(MANIFEST_PATH, {})
+    if hosted() and time.monotonic() - _scan_last < 60:
+        _scan_lock.release()
         return load_json(MANIFEST_PATH, {})
     _scan_state.update(running=True, error=None)
     try:
@@ -45,6 +70,9 @@ def scan_materials() -> dict:
                              for item in bb.attachments(course["id"]))
             if bb.unclassified:
                 raise RuntimeError("附件所属课程尚未全部确认")
+            if hosted():
+                from .shared_metadata import configured_client
+                configured_client().call('count', metrics=bb.metrics)
             manifest = {"updated_at": datetime.now(CHINA_TZ).isoformat(), "courses": courses,
                         "items": items, "warnings": bb.warnings}
             save_json(MANIFEST_PATH, manifest)
@@ -55,12 +83,15 @@ def scan_materials() -> dict:
         _scan_state["error"] = _public_error(exc)
         raise
     finally:
+        _scan_last = time.monotonic()
         _scan_state["running"] = False
         _scan_lock.release()
 
 
-def _materials_loop(stop):
+def _materials_loop(stop, configured=None):
     while not stop.wait(5 * 60):
+        if configured is not None and not configured.is_set():
+            continue
         try:
             scan_materials()
         except Exception as exc:
@@ -80,10 +111,15 @@ def _public_error(exc: Exception) -> str:
 
 
 def sync_all() -> dict[str, Any]:
+    from .quotas import check_private_quota
+    check_private_quota()
     if not _sync_lock.acquire(blocking=False):
         return load_json(SNAPSHOT_PATH, {"errors": {"sync": "已有同步正在运行"}})
     try:
-        previous = load_json(SNAPSHOT_PATH, {})
+        try:
+            previous = load_json(SNAPSHOT_PATH, {})
+        except ValueError:
+            previous = {}  # Expired permissions must be reacquired, never served stale.
         snapshot: dict[str, Any] = {
             "updated_at": datetime.now(CHINA_TZ).isoformat(),
             "blackboard_courses": [], "assignments": [], "tis": {}, "bookings": {},
@@ -98,6 +134,9 @@ def sync_all() -> dict[str, Any]:
                 bb = Blackboard()
                 courses = bb.current_courses()
                 assignments = bb.assignments()
+                if hosted():
+                    from .shared_metadata import configured_client
+                    configured_client().call('count', metrics=bb.metrics)
             snapshot["blackboard_courses"] = courses
             snapshot["assignments"] = assignments
             snapshot["source_updated_at"]["blackboard"] = datetime.now(CHINA_TZ).isoformat()
@@ -123,12 +162,12 @@ def sync_all() -> dict[str, Any]:
         try:
             from sustech_survival import Context
 
-            context = Context(level="terse")
-            snapshot["weather"] = {
-                "condition": context.weather_cond,
-                "temperature": context.temperature,
-                "aqi": context.aqi_value,
-            }
+            def weather(_etag=None, _modified=None):
+                context = Context(level="terse")
+                return {'body': {'condition': context.weather_cond, 'temperature': context.temperature, 'aqi': context.aqi_value}, 'source_requests': 2}
+            from .shared_metadata import configured_client
+            shared = configured_client()
+            snapshot['weather'] = shared.cached('sustech-weather', 'weather', 'public:weather', weather) if shared else weather()['body']
         except Exception as exc:
             snapshot["warnings"].append(f"天气不可用：{type(exc).__name__}")
         # Publish academic data before the more expensive attachment scan.
@@ -151,6 +190,10 @@ def create_app(runtime=None) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config['MAX_CONTENT_LENGTH'] = 256 * 1024 * 1024
     app.json.ensure_ascii = False
+    from .shared_metadata import MetadataError, MetadataQuota
+    @app.errorhandler(MetadataError)
+    def metadata_unavailable(error):
+        return jsonify(error=str(error)), 507 if isinstance(error, MetadataQuota) else 503
     if CLOUD:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=0, x_proto=1, x_host=0, x_prefix=1)
     csrf = secrets.token_urlsafe(32)
@@ -167,6 +210,8 @@ def create_app(runtime=None) -> Flask:
         if CLOUD:
             if request.host != os.environ.get("SUSTECH_PUBLIC_HOST") or not request.is_secure:
                 raise ValueError("访问地址无效")
+            if hosted() and request.script_root != os.environ.get('SUSTECH_PROXY_PREFIX'):
+                raise ValueError('空间路由不匹配')
         elif request.host not in {"127.0.0.1", "localhost"} and not (
             request.host.startswith("127.0.0.1:") or request.host.startswith("localhost:")
         ):
@@ -178,9 +223,14 @@ def create_app(runtime=None) -> Flask:
             if not secrets.compare_digest(request.headers.get("X-CSRF-Token", ""), csrf):
                 raise ValueError("页面令牌无效，请刷新页面")
 
-    if CLOUD and os.environ.get("SUSTECH_BROWSER_LOGIN") == "1":
+    if hosted() and runtime is None:
+        raise ValueError('Hosted mode requires an isolated managed runtime')
+    if CLOUD and (hosted() or os.environ.get("SUSTECH_BROWSER_LOGIN") == "1"):
         from .web_auth import register_web_auth
         register_web_auth(app, local_request, csrf)
+    if hosted():
+        from .hosted import register_hosted
+        register_hosted(app, runtime, local_request, csrf)
 
     @app.get("/")
     def index():
@@ -235,6 +285,9 @@ def create_app(runtime=None) -> Flask:
             local_request()
             from .blackboard_work import resource_path
             path=resource_path(request.args.get('path',''))
+            if direct_downloads():
+                from .provider import _api_path
+                return redirect(_api_path(path), code=303)
             if not _bb_lock.acquire(timeout=15):return jsonify({'error':'Blackboard 正在读取，请稍后重试'}),503
             try:upstream=Blackboard().get(path,stream=True)
             except Exception:
@@ -374,6 +427,24 @@ def create_app(runtime=None) -> Flask:
                      if attachment_key(i["course_id"], i["content_id"], i["id"]) == key), None)
         if not item:
             abort(404)
+        if direct_downloads():
+            # Check this identity's CURRENT permission using metadata only. No file
+            # GET/HEAD, cookies or account-specific URLs cross the cloud boundary.
+            with _bb_lock:
+                bb = Blackboard()
+                if item['course_id'] not in {c['id'] for c in bb.current_courses()}:
+                    abort(403)
+                visible = bb.results(f"/learn/api/public/v1/courses/{item['course_id']}/contents/{item['content_id']}/attachments")
+                if item['id'] not in {a['id'] for a in visible}:
+                    abort(403)
+            from .provider import BB_BASE
+            location = BB_BASE + (f"/learn/api/public/v1/courses/{quote(item['course_id'], safe='')}/contents/"
+                                  f"{quote(item['content_id'], safe='')}/attachments/{quote(item['id'], safe='')}/download")
+            official = BB_BASE + '/webapps/blackboard/execute/displayIndividualContent?course_id=' + quote(item['course_id'], safe='') + '&content_id=' + quote(item['content_id'], safe='')
+            if request.args.get('direct') == '1':
+                return redirect(location, code=303)
+            return render_template('school_download.html', download_url=location, official_url=official,
+                                   csrf_token=csrf, api_base=request.script_root)
         # Resolve upstream errors before sending 200 or download headers.
         if not _bb_lock.acquire(timeout=15):
             return jsonify({"error": "资料扫描或下载正在进行，请稍后重试"}), 503
@@ -413,7 +484,9 @@ def create_app(runtime=None) -> Flask:
         manifest = load_json(MANIFEST_PATH, {})
         result = materials().view(manifest)
         result["scan"] = dict(_scan_state)
-        result["destination"] = str(DOWNLOAD_ROOT) if not CLOUD else "已配对电脑的下载目录"
+        result["destination"] = str(DOWNLOAD_ROOT) if not CLOUD else "学校直接保存到浏览器或自己的电脑"
+        result['school_direct'] = direct_downloads()
+        result['hosted'] = hosted()
         return jsonify(result)
 
     @app.post("/api/materials/refresh")
@@ -471,7 +544,7 @@ def create_app(runtime=None) -> Flask:
     @app.post("/api/materials/agent")
     def material_agent():
         local_request()
-        if not CLOUD or request.headers.get("X-Campus-Agent") != "1" or request.headers.get("Origin"):
+        if not CLOUD or request.headers.get("X-Campus-Agent") != "1" or request.headers.get("Origin") or not request.authorization or request.authorization.type != 'basic':
             abort(403)
         try:
             payload = request.get_json()
@@ -520,8 +593,15 @@ def create_app(runtime=None) -> Flask:
     return app
 
 
-def _sync_loop(stop: threading.Event) -> None:
+def _sync_loop(stop: threading.Event, configured=None) -> None:
+    if hosted():
+        from .hosted import space_id
+        if stop.wait(int(space_id()[:4], 16) % 30):
+            return
     while not stop.is_set():
+        if configured is not None and not configured.is_set():
+            stop.wait(1)
+            continue
         try:
             sync_all()
         except Exception as exc:

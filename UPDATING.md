@@ -1,5 +1,7 @@
 # 运行模式与发布
 
+0.3.0 托管实例的配置、升级、备份及退出方式见 [托管第一阶段交付记录](docs/HOSTED-PHASE1.md)。`local`、`personal_server`、`hosted` 通过 `SUSTECH_EXECUTION_MODE` 区分，未设置时兼容旧 `SUSTECH_CLOUD`。托管空间不能安装共享程序更新；维护者使用逐实例验收及自动回退的 `deploy/hosted_upgrade.py`。个人服务器与 Windows 客户端继续使用下文的 TUF 流程。
+
 ## 实例边界
 
 Windows 客户端与 Linux 服务器使用同一套 Python 业务实现和网页资源。每个后端进程只加载一个账号；不在共享进程里切换他人的 CAS 会话。业务查询、上传与预约从实例直接发往学校，发布服务器仅托管静态版本元数据和安装包。

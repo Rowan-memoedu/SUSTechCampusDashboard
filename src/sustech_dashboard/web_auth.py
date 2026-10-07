@@ -65,13 +65,34 @@ class BrowserSessions:
 
 
 def register_web_auth(app, guard, csrf):
-    credential = Path(os.environ["CREDENTIALS_DIRECTORY"]) / "campus-web"
-    config = json.loads(credential.read_text(encoding="utf-8"))
-    username, password_hash = config["username"], config["password_hash"]
-    if (not isinstance(username, str) or not username or not isinstance(password_hash, str)
-            or not password_hash.startswith(("scrypt:", "pbkdf2:"))):
-        raise ValueError("Website access credential is invalid")
-    account = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+    from .execution import hosted
+    is_hosted = hosted()
+    if is_hosted:
+        from .hosted import Space, space_id
+        space = Space()
+        loader = space.web_config
+        cookie, signed_out = COOKIE + '_' + space_id(), SIGNED_OUT + '_' + space_id()
+    else:
+        credential = Path(os.environ["CREDENTIALS_DIRECTORY"]) / "campus-web"
+        config = json.loads(credential.read_text(encoding="utf-8"))
+        loader = lambda: config
+        cookie, signed_out = COOKIE, SIGNED_OUT
+
+    def configuration():
+        config = loader()
+        if config is None and is_hosted:
+            return None
+        if (not isinstance(config.get('username'), str) or not config['username'] or
+                not isinstance(config.get('password_hash'), str) or
+                not config['password_hash'].startswith(('scrypt:', 'pbkdf2:'))):
+            raise ValueError('Website access credential is invalid')
+        return config
+
+    def account():
+        config = configuration()
+        return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest() if config else ''
+
+    configuration()
     sessions = BrowserSessions(DATA_ROOT / "browser-sessions.sqlite3")
     attempts, attempt_lock = OrderedDict(), threading.Lock()
 
@@ -86,9 +107,10 @@ def register_web_auth(app, guard, csrf):
             attempts.move_to_end(peer)
             if len(attempts) > 4096:
                 attempts.popitem(last=False)
-        valid = (isinstance(user, str) and isinstance(password, str) and len(password) <= 1024
-                 and check_password_hash(password_hash, password)
-                 and secrets.compare_digest(user.encode(), username.encode()))
+        config = configuration()
+        valid = (bool(config) and isinstance(user, str) and isinstance(password, str) and len(password) <= 1024
+                 and check_password_hash(config['password_hash'], password)
+                 and secrets.compare_digest(user.encode(), config['username'].encode()))
         if valid:
             with attempt_lock:
                 attempts.pop(peer, None)
@@ -102,9 +124,9 @@ def register_web_auth(app, guard, csrf):
             abort(403)
 
     def set_session(response, token, remember):
-        response.set_cookie(COOKIE, token, max_age=REMEMBER_SECONDS if remember else None,
+        response.set_cookie(cookie, token, max_age=REMEMBER_SECONDS if remember else None,
             secure=True, httponly=True, samesite="Lax", path=request.script_root + "/")
-        response.delete_cookie(SIGNED_OUT, path=request.script_root + "/", secure=True, httponly=True, samesite="Lax")
+        response.delete_cookie(signed_out, path=request.script_root + "/", secure=True, httponly=True, samesite="Lax")
 
     @app.context_processor
     def browser_context():
@@ -121,21 +143,22 @@ def register_web_auth(app, guard, csrf):
         checking = request.path == "/auth/verify"
         if checking:
             original = request.headers.get("X-Campus-Original-URI", "").split("?", 1)[0]
-            if original in {request.script_root + "/auth/login", request.script_root + "/static/campus.css"}:
+            public = {'/auth/login', '/static/campus.css'} | ({'/invite', '/static/invite.js'} if is_hosted else set())
+            if original in {request.script_root + path for path in public}:
                 return "", 204
-        if request.path == "/auth/login" or request.path == "/static/campus.css":
+        if request.path in {'/auth/login', '/static/campus.css'} or (is_hosted and request.path in {'/invite', '/static/invite.js'}):
             return None
-        if sessions.valid(request.cookies.get(COOKIE, ""), account):
+        if account() and sessions.valid(request.cookies.get(cookie, ""), account()):
             return ("", 204) if checking else None
         auth = request.authorization
-        if (request.cookies.get(SIGNED_OUT) != "1" and auth and auth.type == "basic"
+        if (request.cookies.get(signed_out) != "1" and auth and auth.type == "basic"
                 and credentials_valid(auth.username, auth.password)):
             # Download agents keep their existing Basic authentication. A browser
             # with cached Basic credentials can migrate without another prompt.
             if checking:
                 return "", 204
             if request.method == "GET" and not request.path.startswith("/api/"):
-                g.new_browser_session = sessions.issue(account, True)
+                g.new_browser_session = sessions.issue(account(), True)
             return None
         if checking or request.path.startswith("/api/") or request.method not in {"GET", "HEAD"}:
             return jsonify({"error": "请登录校园面板", "login_url": url_for("web_login")}), 401
@@ -160,20 +183,20 @@ def register_web_auth(app, guard, csrf):
             if credentials_valid(request.form.get("username"), request.form.get("password")):
                 remember = request.form.get("remember") == "on"
                 response = redirect(request.script_root + "/", code=303)
-                set_session(response, sessions.issue(account, remember), remember)
+                set_session(response, sessions.issue(account(), remember), remember)
                 return response
             error = "用户名或密码不正确"
-        elif sessions.valid(request.cookies.get(COOKIE, ""), account):
+        elif account() and sessions.valid(request.cookies.get(cookie, ""), account()):
             return redirect(request.script_root + "/")
         return render_template("web_login.html", csrf_token=csrf, error=error), 401 if error else 200
 
     @app.post("/auth/logout")
     def web_logout():
         check_form_csrf()
-        sessions.revoke(request.cookies.get(COOKIE, ""))
+        sessions.revoke(request.cookies.get(cookie, ""))
         response = redirect(url_for("web_login"), code=303)
-        response.delete_cookie(COOKIE, path=request.script_root + "/", secure=True, httponly=True, samesite="Lax")
+        response.delete_cookie(cookie, path=request.script_root + "/", secure=True, httponly=True, samesite="Lax")
         # Suppress re-login using a browser's old Basic-auth cache after logout.
-        response.set_cookie(SIGNED_OUT, "1", max_age=REMEMBER_SECONDS, secure=True,
+        response.set_cookie(signed_out, "1", max_age=REMEMBER_SECONDS, secure=True,
                             httponly=True, samesite="Lax", path=request.script_root + "/")
         return response

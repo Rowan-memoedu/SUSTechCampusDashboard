@@ -32,7 +32,12 @@ class Repository(FetcherInterface):
             raise DownloadHTTPError("not found", 404)
         yield self.files[name]
 
-    def publish(self, version="0.3.0", number=1, expired=False, malicious=False):
+    def publish(self, version=None, number=1, expired=False, malicious=False):
+        if version is None:
+            from sustech_dashboard import __version__
+            from packaging.version import Version
+            current = Version(__version__)
+            version = f'{current.major}.{current.minor + 1}.0'
         release = {"version": version, "platform": updates.platform_tag(), "schema": 1, "protocol": 1}
         memory = io.BytesIO()
         with zipfile.ZipFile(memory, "w") as bundle:

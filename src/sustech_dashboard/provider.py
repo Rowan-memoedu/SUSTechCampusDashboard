@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -12,10 +14,19 @@ from urllib.parse import urljoin, urlparse
 from requests.exceptions import HTTPError
 
 from .core import CHINA_TZ, parse_dt, submission_status
+from .execution import course_cutoff
 
 
 BB_BASE = "https://bb.sustech.edu.cn"
 COURSE_CUTOFF = date(2026, 9, 1)
+
+
+def attachment_version(attachment, content):
+    # Metadata fingerprint, NOT a hash of the attachment bytes. Schools that do
+    # not expose a byte revision cannot promise detection of silent replacement.
+    values = [attachment.get(k) for k in ('id', 'fileName', 'fileSize', 'size', 'modified', 'created', 'revision')]
+    values += [content.get('modified'), content.get('created')]
+    return 'metadata:'+hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
 def _jsonable(value: Any) -> Any:
@@ -77,9 +88,13 @@ class Blackboard:
         self.warnings: list[str] = []
         self.unclassified: list[str] = []
         self._courses: list[dict[str, str]] | None = None
+        self.metrics = {'visibility_requests': 0, 'personal_state_requests': 0}
 
     def get(self, path: str, *, stream: bool = False):
         response = self.session.get(_api_path(path), timeout=(10, 60), stream=stream)
+        category = 'personal_state_requests' if '/users/' in path or '/gradebook/' in path else 'visibility_requests'
+        if hasattr(self, 'metrics'):
+            self.metrics[category] += 1 + len(response.history) + len(getattr(getattr(response.raw, 'retries', None), 'history', ()))
         response.raise_for_status()
         return response
 
@@ -121,7 +136,7 @@ class Blackboard:
             if enrolled_at is None:
                 unknown.append(name)
                 continue
-            if enrolled_at.date() < COURSE_CUTOFF:
+            if enrolled_at.date() < course_cutoff():
                 continue
             tid = course.get("termId")
             if tid:
@@ -187,6 +202,7 @@ class Blackboard:
                     "title": item.get("title", ""),
                     "folders": item.get("_folder_path", []),
                     "size": attachment.get("fileSize") or attachment.get("size"),
+                    "source_version": attachment_version(attachment, item),
                 })
         skipped = getattr(self, "_inaccessible_folders", 0) - before + inaccessible_attachments
         if skipped:
@@ -226,7 +242,7 @@ class Blackboard:
                 if due and due_at is None:
                     self.warnings.append(f"{course['name']}：有作业截止时间无法解析，已跳过")
                     continue
-                if due_at and due_at.date() < COURSE_CUTOFF:
+                if due_at and due_at.date() < course_cutoff():
                     continue
                 try:
                     content = self.json(f"/learn/api/public/v1/courses/{cid}/contents/{col['contentId']}")
@@ -236,7 +252,7 @@ class Blackboard:
                     continue
                 if not due_at:
                     created_at = parse_dt(content.get("created"))
-                    if created_at is None or created_at.date() < COURSE_CUTOFF:
+                    if created_at is None or created_at.date() < course_cutoff():
                         continue
                 try:
                     attempts = self.results(
