@@ -147,6 +147,7 @@ class UpdateManager:
             available = valid_version(release["version"]) > valid_version(__version__)
             self.state.update(state="available" if available else "current", latest=release["version"],
                               available=available, message="有新版本可安装" if available else "已是当前版本",
+                              notes=str(release.get('notes', ''))[:2000],
                               checked_at=datetime.now(timezone.utc).isoformat())
         except Exception as exc:
             self.state.update(state="error", available=False,

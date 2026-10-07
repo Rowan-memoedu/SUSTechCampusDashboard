@@ -273,6 +273,8 @@ if __name__ == '__main__':
     sub.add_parser('invite').add_argument('space_id')
     sub.add_parser('list')
     args = parser.parse_args()
+    if args.command in {'install', 'create', 'invite'}:
+        parser.error('Operator hosting is retired; new deployments and invitations are disabled.')
     if os.name != 'posix' or os.geteuid() != 0:
         raise SystemExit('Run this operator command as Linux root')
     if args.command == 'install':

@@ -1,75 +1,28 @@
 # 第二阶段执行交接
 
-更新：2026-10-07。状态：**仅文档交接已完成；代码、部署、迁移与服务器清理待执行**。
+更新：2026-10-08。0.4.0 已签名发布、安装并接替真实本机数据；公共站已改静态，运营者托管已退役。证据与尚未独立验收的首次交互使用见 [LOCAL-MODE-ACCEPTANCE.md](LOCAL-MODE-ACCEPTANCE.md)。不要重复执行已完成的迁移或恢复旧托管。
 
-用户已确认：去除运营者托管，公网只保留发布页及静态更新，本机浏览器页承载全部校园功能；加上安装后自动启动/打开、已安装唤起、本机更新提醒与点击后自动安装。当前 Thread 已通过问题卡确认只准备文档，由新 Thread 实施。不要将该确认读成“第二阶段已实现”，也不用重新询问是否保留托管。
+## 当前路线
 
-## 开始时读取
+用户已确认取消运营者业务托管，公网只保留发布页和原 TUF 更新源，个人功能由本机浏览器提供，保留用户自有 Linux 服务器。范围与资源清单见 [WEB-HOSTED-PLAN.md](WEB-HOSTED-PLAN.md)，工程边界见 [AGENTS.md](../AGENTS.md)。
 
-1. [AGENTS.md](../AGENTS.md)：核心工程边界。
-2. [第二阶段总计划](WEB-HOSTED-PLAN.md)：范围、用户路径、迁移、资源处置及验收；发生描述冲突时以该计划的最新确认范围为准。
-3. [复用与下载规则](SHARED-METADATA-AND-DOWNLOADS.md)、[UPDATING.md](../UPDATING.md)：数据边界和既有发布机制。
-4. [第一阶段记录](HOSTED-PHASE1.md)：当前仍在运行的旧架构、历史证据和故障边界；它不是新建托管的授权。
-5. 当前代码及真实机器状态。修改发布页前读取 Hallmark skill（维护者路径为 `C:\Users\fy\.codex\skills\hallmark\SKILL.md`）；Windows 长命令按 windows-terminal-timeout 运行。
+续签按最新用户纠正执行：**发布者电脑后台每 20 天续签，不使用 Codex 定时任务**。旧 Codex 自动化已删除，Windows 后台入口已实际续签并通过双平台验签；密钥仍只在本机 DPAPI 目录。见 [UPDATING.md](../UPDATING.md)。
 
-## 基线与第一步
+## 恢复上下文
 
-- 仓库：`D:\Projects\SUSTechCampusDashboard`，功能基线提交 `a87672e` / `0.3.5`。此文档提交会在它之后；执行前看最新 Git 状态并保留并行修改。
-- 本地 Python：`D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe`。
-- 产物：`D:\Artifacts\SUSTechCampusDashboard`；构建/测试缓存：`D:\Caches\SUSTechCampusDashboard`；真实数据：`D:\AppData\SUSTechCampusDashboard`。隔离验收不能覆盖真实目录。
-- 现有公共地址：`https://124.221.144.155/app/`；静态更新：`https://124.221.144.155/campus-updates/`。保留这两个用途，公共入口内容需替换。
-- 既有维护连接是 `ubuntu@124.221.144.155`，可用只读 SSH 核对。保持主机密钥验证；私密账号、空间 ID、令牌和数据库正文不写入公共日志。
-- 2026-10-07 盘点仍有入口、共享元数据和 1 个个人空间服务。nginx 与 GraspMemoEdu 共用配置。候选删除路径、保留路径及约 365 MiB 表观大小见总计划；不要仅凭旧清单删除。
-- GitHub 仓库已公开；发布签名私钥仍只在发布者 DPAPI 私密目录。保持原信任根和更新地址，检查续签任务实际状态。
+1. 先读阶段验收记录，再核对 Git 工作树和实际运行版本；保留已有改动。
+2. 读取总计划中的迁移顺序、精确删除清单和共享资源边界。旧 [HOSTED-PHASE1.md](HOSTED-PHASE1.md) 仅为历史与退役前证据，不能重新开通托管。
+3. 维护者 Python：`D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe`；项目：`D:\Projects\SUSTechCampusDashboard`；构建缓存：`D:\Caches\SUSTechCampusDashboard`。
+4. 发布产物与截图：`D:\Artifacts\SUSTechCampusDashboard\v0.4.0`；私密证据：`D:\Artifacts\SUSTechCampusDashboard\local-mode-private`；真实数据：`D:\AppData\SUSTechCampusDashboard`。恢复副本在 `D:\Quarantine\SUSTechCampusDashboard\hosted-retirement-20261008`，至少保留至 2026-10-15 00:22，不自动删除。
+5. 维护连接：`ubuntu@124.221.144.155`，保持主机密钥校验。公共入口 `/app/`，TUF `/campus-updates/`；nginx 与 GraspMemoEdu 共用，不能整文件重写或停掉共享服务。
 
-先运行只读 Git/配置/服务/目录盘点，形成精确清单与验证方法；然后直接按总计划 A–D 开发。没有需要预先补答的产品决定，安装器和打开协议的工程默认已在总计划中给出。
+## 下一步与执行边界
 
-## 代码入口与必须处理的关联
+- 后续版本继续复用 `build_client.py`、`build_installer.py`、`build_site.py` 及原 TUF 根；0.4.0 包已发布，不可同版本换包。
+- 现有本机后台已经完成正常退出、合并及重启，没有重启浏览器。后台服务重启遵循既有授权；整体电脑或正在使用的用户应用重启仍按用户规则处理。
+- `migrate_local.py` 的导出、试合并和提交已真实完成，自动下载初始暂停；旧配对文件原位保留用于恢复但不会再联网。不要重放历史任务或再次覆盖真实目录。
+- `retire_hosted.py`、`verify_retirement_backup.py`、`sqlite_recovery_digest.py` 保存本轮方法；服务器原始资源与临时阶段目录已清除，不能直接重跑其首次阶段。恢复只能使用受限 D 盘副本，并先明确目标与执行端，防止重复校园写入。
+- 保留静态站、TUF、共享 nginx/TLS、其他站点和发布密钥；真实包、安装器、双平台旧版升级及服务器退役均有验收记录。
+- 真实校园验收仅限本人读取和附件下载；不提交测试作业、不占用场地、不选退课、不上传或删除打印任务。新用户首次交互安装与真实使用须单独记录。
 
-- [client.py](../src/sustech_dashboard/client.py)、[runtime.py](../src/sustech_dashboard/runtime.py)、[cli.py](../src/sustech_dashboard/cli.py)
-  - 当前 `supervise(..., local_only=False)` 在 Windows 未保存凭据时跳公网；`--local-only` 才走本机，CLI start/serve 也调用该默认值。
-  - 统一改为本机默认，兼容已有参数，处理 cloud-access 等旧配对恢复，不清空本机身份/文件，也不误删用户自有服务器配置。
-  - 复用单实例锁、访问 fragment、健康检查、更新状态与进程监督；旧启动器/协议可能仍从旧版本目录启动，要验证实际选中版本。
-- [protocol.py](../src/sustech_dashboard/protocol.py)
-  - 当前仅 connect/login，Windows HKCU 协议调用可执行文件的 --connect-uri。
-  - 增加受限本机 open；已停止时启动并等就绪，已运行时打开现有实例；不接受外部任意参数。
-  - 旧运营者 connect/login 不能继续初始化凭据或配对。用户自有服务器能力若保留，必须显式区分。
-- [deploy/build_client.py](../deploy/build_client.py)、[deploy/install-autostart.ps1](../deploy/install-autostart.ps1)
-  - 现有 PyInstaller onedir、Windows 无控制台、ZIP 和 release.json 可复用；安装器尚不存在。
-  - 增加当前用户安装、程序/数据分离、快捷入口、原用户启动和卸载保护；自启动仅在用户选择后登记，不静默恢复已撤销旧任务。
-- [updates.py](../src/sustech_dashboard/updates.py)、[instance_routes.py](../src/sustech_dashboard/instance_routes.py)、[templates/settings.html](../src/sustech_dashboard/templates/settings.html)、[templates/index.html](../src/sustech_dashboard/templates/index.html)、[static/instance.js](../src/sustech_dashboard/static/instance.js)
-  - 设置页已有检查、安装及轮询；新增首页提醒与明确的等待/重连/回退结果，复用后台 API。
-  - 已有约 30 秒后检查、约每日检查、签名包安装和启动回退；不要新建平行更新器。
-- [app.py](../src/sustech_dashboard/app.py)、[shared_metadata.py](../src/sustech_dashboard/shared_metadata.py)
-  - hosted 的快照 pack/unpack 使用 `_metadata_ref`；导出时按本人有效授权展开后再关闭共享服务，验证脱离旧服务可读。
-  - 删除本机对运营者共享层的依赖，不把引用 JSON 直接当完整迁移数据。
-- [paths.py](../src/sustech_dashboard/paths.py)、[materials_store.py](../src/sustech_dashboard/materials_store.py)、[materials_local.py](../src/sustech_dashboard/materials_local.py)、[download_agent.py](../src/sustech_dashboard/download_agent.py)
-  - 保留数据目录、个人基线、源版本、文件存在/修改状态和哈希；把运营者队列执行退役与本地下载复用分开处理。
-  - Windows 有 D 盘时沿用既有 D 盘数据默认，无 D 盘时使用用户目录；不得把维护者固定绝对路径硬编码为所有人的安装位置。
-- [entry.py](../src/sustech_dashboard/entry.py)、[templates/entry.html](../src/sustech_dashboard/templates/entry.html)、[static/entry.js](../src/sustech_dashboard/static/entry.js)
-  - 当前是动态登录入口。改为独立静态发布页后，公共站不得继续启动入口 Flask 服务或加载旧配对登录脚本。
-- [deploy/hosted_admin.py](../deploy/hosted_admin.py)、[deploy/entry_admin.py](../deploy/entry_admin.py)、[deploy/hosted_routes.py](../deploy/hosted_routes.py)、[deploy/hosted_upgrade.py](../deploy/hosted_upgrade.py)
-  - 用于读取现有服务/配置/备份规则；退役过程只移除精确校园块和独占资源。
-  - `retire_trial.py` 会重建空服务，`reset_connections.py` 会清连接；二者都不能直接代替本阶段迁移/最终清理。
-- [deploy/publish_release.py](../deploy/publish_release.py)、[deploy/publish_feed.py](../deploy/publish_feed.py)、[deploy/renew_feed.py](../deploy/renew_feed.py)、[deploy/install_update_feed.py](../deploy/install_update_feed.py)
-  - 保留 TUF 源、版本单调性和续签；静态更新目录不属于托管业务垃圾。不要重新 --init 或覆盖信任根。
-
-## 执行顺序与验证
-
-1. 盘点现状、保护真实数据和共享站点；记录可恢复方案。
-2. 在隔离目录完成本机默认启动、安装/唤起、更新提醒、旧配对退役及迁移代码。
-3. 运行 Windows/Linux pytest、真实分发包检查和全新用户安装流程。新增回归围绕启动、迁移和更新的实际失败条件，保留业务写入保护。
-4. 发布新签名版本，在隔离环境验证旧客户端升级，准备并预览静态发布页及下载/打开入口；先具备可用接替路径，不提前覆盖仍需迁移的旧入口。
-5. 暂停旧端新增任务及旧保留 timer，完成一致性备份、迁移与共享引用展开，验证本人数据归属、文件哈希和账本；迁移失败按总计划恢复，不能双端执行。
-6. 将受限恢复材料搬到 D 盘并核验，切换静态发布页并验收，再按精确清单退役服务器服务、目录、凭据和旧路由；保留静态更新、TLS和其他站点。
-7. 回读服务/端口/路径/网站与实际磁盘回收，完成总计划验收；更新 README、客户端说明、更新说明与阶段状态，写明仍未验证的用户首次试用。
-
-已有测试入口包括 `tests/test_instance.py`、`test_updates.py`、`test_feed_renewal.py`、`test_materials.py`、`test_material_alignment.py`、`test_local_files.py`、`test_hosted.py`、`test_entry.py` 和 Linux 的 `test_nginx_upload.py`。旧托管测试可调整到迁移/退役或删除确已移除功能的覆盖，但须说明原因，不能通过删除仍有意义的测试来制造通过。
-
-已有真实包验收入口是 `deploy/verify_client.py`。它目前不证明安装器、浏览器协议首次打开或完整升级体验，新阶段必须补这些实际验收。旧 `verify_connection.py` 和 `verify_entry_flow.cjs` 证明的是旧托管链路，不能直接充当新链路证据。
-
-文档交接不要求运行产品测试；执行阶段不得将本文列出的验收当作已运行结果。需要重启用户正在使用的应用时，遵循现行协作规则；无关网站和服务始终保持。
-
-## 可直接用于新 Thread 的启动指令
-
-> 在 D:\Projects\SUSTechCampusDashboard 执行第二阶段。先读取 AGENTS.md、docs/LOCAL-MODE-HANDOFF.md 和 docs/WEB-HOSTED-PLAN.md，再核对当前代码与线上状态。用户已确认取消运营者托管，公网改为静态发布页及签名更新源；全部校园功能由本机浏览器个人页提供，保留用户自有 Linux 服务器。实现安装后自动启动打开、受限本机唤起、首页更新提醒和点击后自动安装，保持现有业务、个人数据及 TUF 机制。按计划迁移并核验恢复后，删除清单内服务器托管资源，保留静态更新与 GraspMemoEdu 等共享资源。上一 Thread 只完成文档，没有实施这些变化。直接按计划推进与验收，保留并行改动，学校真实验收仅限读取/下载；遇到超范围数据或共享资源影响时再明确提出。
+已禁用旧运营者部署/升级 CLI 和入口执行命令；`retire_trial.py`、`reset_connections.py` 仍是历史维护工具，不能代替最终退役。前端修改继续使用 Hallmark，长命令按 windows-terminal-timeout 运行。Memory 与 RemNote 不在本轮写入范围。

@@ -19,16 +19,31 @@ from .dpapi_store import unprotect_password
 CONFIG = DATA_ROOT / "cloud-access.dpapi.json"
 
 
-def cloud_session():
+def pair_config():
     if os.name == 'nt':
         config = json.loads(CONFIG.read_text(encoding="utf-8"))
-        password = unprotect_password(config.get('token_dpapi') or config['password_dpapi'])
     else:
         # Linux execution hosts use a private systemd credential, never a plaintext data file.
         directory = os.environ.get('CREDENTIALS_DIRECTORY')
         if not directory:raise ValueError('Linux 执行主机需配置 systemd campus-pair 凭据')
         config = json.loads((Path(directory) / 'campus-pair').read_text(encoding='utf-8'))
-        password = config['password']
+    from .retirement import operator_url, RETIRED_MESSAGE
+    if operator_url(config.get('url')):
+        raise ValueError(RETIRED_MESSAGE)
+    return config
+
+
+def personal_pair_available():
+    try:
+        return bool(pair_config().get('url'))
+    except (OSError, ValueError, KeyError):
+        return False
+
+
+def cloud_session():
+    config = pair_config()  # Reject retired endpoints before decrypting or connecting.
+    password = (unprotect_password(config.get('token_dpapi') or config['password_dpapi'])
+                if os.name == 'nt' else config['password'])
     url = config["url"]
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -285,7 +300,7 @@ class PairedPoll:
     def __call__(self, payload):
         remote = bool(payload.get('active_job') and payload.get('_remote'))
         local = self.local_poll(self.heartbeat(payload) if remote else {k: v for k, v in payload.items() if k != '_remote'})
-        if not CONFIG.exists():
+        if not personal_pair_available():
             if remote:
                 raise RuntimeError('电脑配对信息不可用，下载回执等待连接恢复')
             return local

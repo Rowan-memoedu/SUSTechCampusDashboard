@@ -1,5 +1,6 @@
 """Portable executable entry point. Arguments never contain campus passwords."""
 import argparse
+import os
 import sys
 
 
@@ -13,13 +14,16 @@ def main():
     parser = argparse.ArgumentParser(description="南科大校园面板个人客户端")
     parser.add_argument("--backend", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-browser", action="store_true")
-    parser.add_argument("--local-only", action="store_true", help="直接进入纯本机模式，校园凭据不上传本站")
+    parser.add_argument("--local-only", action="store_true", default=True, help="兼容旧参数；默认始终进入本机面板")
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--agent", action="store_true", help="连接自己服务器的执行主机客户端（附件下载与打印）")
     parser.add_argument('--connect-uri', help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if not args.backend and not args.self_test and not args.agent:
+    if args.connect_uri:
+        from .protocol import parse_uri
+        parse_uri(args.connect_uri)
+    if not args.self_test and not args.agent and os.environ.get('SUSTECH_REGISTER_PROTOCOL') != '0':
         from .protocol import register_protocol
         register_protocol()
     if args.connect_uri:

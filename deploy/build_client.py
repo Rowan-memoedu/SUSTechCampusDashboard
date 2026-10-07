@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
+    parser.add_argument("--notes", default="默认在本机使用；新增安装与唤起、首页更新提醒，保留个人资料和操作记录。")
     args = parser.parse_args()
     subprocess.run([sys.executable, "-m", "pip", "check"], check=True)
     assert TRUST_ROOT.is_file(), "Initialize release trust root before building"
@@ -36,7 +37,7 @@ def main():
     env = dict(os.environ, PYINSTALLER_CONFIG_DIR=str(args.work / "cache"))
     subprocess.run(command, check=True, env=env)
     bundle = args.output / "campus-client"
-    release = {"version": __version__, "platform": platform_tag(), "schema": 1, "protocol": 1}
+    release = {"version": __version__, "platform": platform_tag(), "schema": 1, "protocol": 1, "notes": args.notes[:2000]}
     (bundle / "release.json").write_text(json.dumps(release), encoding="utf-8")
     shutil.copyfile(repo / "CLIENT-README.md", bundle / "使用说明.md")
     shutil.copyfile(repo / "THIRD-PARTY-NOTICES.md", bundle / "THIRD-PARTY-NOTICES.md")

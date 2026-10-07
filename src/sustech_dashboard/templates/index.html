@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+{% if not hosted %}{% set update_compact = true %}{% include 'update.html' %}{% endif %}
 <section class="wide"><h2>校园服务</h2><nav class="service-nav"><a href="{{ api_base }}/grades"><strong>成绩与学分</strong><span>成绩明细、参考 GPA、学分与导出</span></a><a href="{{ api_base }}/printing"><strong>校园打印</strong><span>打印点、文档上传、队列与使用记录</span></a><a href="{{ api_base }}/selection"><strong>选课辅助</strong><span>课程目录、冲突排查、选退课与积分</span></a></nav></section>
 <section class="wide" id="problems" hidden><h2>同步状态</h2><div id="problem-list"></div></section>
 <section class="wide"><h2>每日概览</h2><div class="grid" id="metrics"></div><div id="classes"></div>

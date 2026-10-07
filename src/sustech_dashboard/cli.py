@@ -41,12 +41,13 @@ def main():
             from .download_agent import main as agent
             agent()
         elif args.command == "open-server":
-            from .download_agent import CONFIG
-            config = json.loads(CONFIG.read_text(encoding="utf-8"))
+            from .download_agent import pair_config
+            config = pair_config()
             webbrowser.open(config["url"])
         elif args.command in {"status", "bookings"}:
             result = load_json(DATA_ROOT / "snapshot.json", {})
-            if not result and (DATA_ROOT / "cloud-access.dpapi.json").exists():
+            from .download_agent import personal_pair_available
+            if not result and personal_pair_available():
                 from .download_agent import cloud_status
                 result = cloud_status()
             if args.command == "bookings":
@@ -54,7 +55,8 @@ def main():
                           "bookings": result.get("bookings"), "errors": result.get("errors")}
             print(json.dumps(result, ensure_ascii=False, indent=2))
         elif args.command == "sync":
-            if (DATA_ROOT / "cloud-access.dpapi.json").exists() and not (DATA_ROOT / "snapshot.json").exists():
+            from .download_agent import personal_pair_available
+            if personal_pair_available() and not (DATA_ROOT / "snapshot.json").exists():
                 from .download_agent import sync_once
                 result = sync_once()
             else:

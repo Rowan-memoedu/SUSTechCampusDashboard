@@ -1,8 +1,14 @@
 {% extends 'base.html' %}
-{% block header %}<h1>{{ '空间与账号' if hosted else '本机与更新' }}</h1><p><a href="{{ api_base }}/">返回校园面板</a></p>{% endblock %}
-{% block content %}<section class="wide"><h2>当前实例</h2><div id="instance-info">正在读取…</div>{% if hosted %}<p>这是运营者服务器上的独立托管空间，私密状态上限 128 MiB。共享元数据总上限 256 MiB；旧版本最多 2 版且不超过 7 天，脱敏日志 14 天，恢复备份 7 天。达到限额时暂停新增并提示。退出时先撤销访问，个人数据删除由维护者与你另行确认。</p><p><a href="{{ api_base }}/setup">绑定、更换密码或断开学校账号</a></p>{% else %}<p>每个实例只服务一个账号。CAS 凭据、登录会话和校园数据保存在运行此实例的设备；请将安装包分发给他人，由对方在自己的设备上登录。</p>{% endif %}</section>
-{% if hosted %}<section class="wide"><h2>更换面板密码</h2><form id="panel-password"><label>当前面板密码<input name="previous" type="password" autocomplete="current-password" required></label><label>新面板密码<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label><button>更换密码并撤销旧会话</button><p id="password-message" role="status"></p></form></section>{% endif %}
-<section class="wide"><h2>版本更新</h2>{% if not hosted %}<p>启动后及运行期间每天自动检查。安装前校验签名，等待正在进行的提交和下载完成，再重启服务；启动失败自动恢复上一版本。账号、下载基线、已下载文件和操作记录保留。</p>{% endif %}
-{% if hosted %}<p>托管程序由维护者统一更新。更新及恢复不重放作业提交、预约或打印写操作。</p>{% endif %}<p id="update-state" role="status">正在读取…</p><button id="update-check" class="secondary" type="button" {% if hosted %}hidden{% endif %}>检查更新</button> <button id="update-install" type="button" disabled {% if hosted %}hidden{% endif %}>安装更新并重启服务</button>
-<p class="muted">更新代码仍由发布者维护。签名可防止第三方篡改，不能替代对发布者及代码的信任。安装不会向版本服务器上传账号或校园数据。</p></section>{% endblock %}
+{% block header %}<h1>本机与更新</h1><p><a class="header-back" href="{{ api_base }}/">返回校园面板</a></p>{% endblock %}
+{% block content %}
+<section class="wide"><h2>当前实例</h2><div id="instance-info">正在读取…</div><p>校园数据、登录凭据和操作记录保存在当前个人运行端。关闭浏览器后组件仍可运行；退出组件或关机期间停止同步。</p></section>
+{% if not hosted %}{% include 'update.html' %}{% endif %}
+{% if not personal_server %}
+<section class="wide"><h2>下载与后台启动</h2><form id="preferences" class="account-form">
+<label>资料保存目录<input name="download_root" required maxlength="500"><span class="muted">更改目录在下次启动时生效；已有文件保持原位。</span></label>
+<label class="check-option"><input name="autostart" type="checkbox">登录 Windows 后在后台启动，不自动弹出浏览器</label>
+<button type="submit">保存设置</button><p id="preferences-message" role="status"></p></form></section>
+<section class="wide"><h2>退出本机组件</h2><p>退出前等待提交、下载和回执完成。下次可从快捷方式或发布页重新打开。</p><button id="stop-instance" class="secondary" type="button">退出组件</button><p id="stop-message" role="status"></p></section>
+{% else %}<section class="wide"><h2>个人服务器运行设置</h2><p>下载目录和后台启动由自己的服务器运行配置与 systemd 管理。通过本页可以检查并安装签名更新。</p></section>{% endif %}
+{% endblock %}
 {% block scripts %}<script src="{{ url_for('static',filename='instance.js') }}"></script>{% endblock %}

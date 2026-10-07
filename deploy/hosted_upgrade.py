@@ -136,6 +136,7 @@ def collect_backups():
 
 
 if __name__ == '__main__':
+    raise SystemExit('Operator hosting is retired; use explicit migration and retirement tooling.')
     parser = argparse.ArgumentParser()
     parser.add_argument('--program')
     parser.add_argument('--collect-only', action='store_true')

@@ -202,4 +202,4 @@ def http_server(app, port=18801):
 
 
 if __name__ == '__main__':
-    http_server(create_app(os.environ['CAMPUS_ENTRY_ROOT'], os.environ['CAMPUS_ENTRY_CONFIG'])).run()
+    raise SystemExit('运营者登录入口已退役；请部署静态发布页。历史模块仅保留迁移和回归测试用途。')

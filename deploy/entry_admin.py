@@ -80,6 +80,7 @@ WantedBy=multi-user.target
 
 
 if __name__ == '__main__':
+    raise SystemExit('Operator hosting is retired; deploy the static release site instead.')
     if os.geteuid() != 0:
         raise SystemExit('Linux root required')
     parser = argparse.ArgumentParser()

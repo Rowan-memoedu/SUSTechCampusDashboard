@@ -1,0 +1,11 @@
+/* Hallmark · component: update notice · genre: modern-minimal · theme: existing campus
+ * states: default hover focus active disabled loading error success
+ * pre-emit critique: P4 H4 E4 S5 R5 V4 */
+.update-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.update-heading h2{margin:0}.update-heading a,.update-panel button{white-space:nowrap;min-height:44px;display:inline-flex;align-items:center}
+header .header-back{color:var(--card);min-height:44px;display:inline-flex;align-items:center}
+.update-panel[data-state=error]{border-color:var(--bad)}.update-panel[data-state=success]{border-color:var(--blue)}
+.update-panel[data-state=loading] #update-state{color:var(--blue)}.update-panel button:disabled{cursor:not-allowed}
+.update-panel button:active{filter:brightness(.85)}
+@media(hover:hover){.update-panel button:not(:disabled):hover{filter:brightness(.92)}}
+@media(max-width:550px){.update-heading{display:block}.update-panel .actions{align-items:stretch}}

@@ -126,7 +126,8 @@ def test_paired_downloads_claim_one_queue_and_acknowledge_only_owner(monkeypatch
     from sustech_dashboard.core import save_json
     monkeypatch.setattr(agent, 'DATA_ROOT', tmp_path)
     monkeypatch.setattr(agent, 'CONFIG', tmp_path/'pair.json')
-    agent.CONFIG.write_text('{}')
+    agent.CONFIG.write_text('{"url":"https://personal.example/campus"}')
+    monkeypatch.setattr(agent, 'personal_pair_available', lambda: True)
     manifest = {'updated_at': 'now', 'items': [{'course_id': 'c', 'content_id': 'i', 'id': 'a'}]}
     local, cloud = MaterialsStore(tmp_path/'local.sqlite3'), MaterialsStore(tmp_path/'cloud.sqlite3')
     local.set_auto(False); cloud.set_auto(False)

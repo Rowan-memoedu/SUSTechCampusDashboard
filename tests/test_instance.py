@@ -61,7 +61,7 @@ def test_first_login_validates_once_no_account_switch_or_password_echo(instance,
     assert calls == [("test-account", "not-a-real-password", False)]
 
 
-def test_cold_pair_requires_local_auth_and_csrf_but_not_second_campus_login(instance, monkeypatch):
+def test_operator_pair_is_retired_without_changing_identity(instance, monkeypatch):
     from sustech_dashboard import pairing
     rt, client, headers = instance
     calls = []
@@ -70,9 +70,10 @@ def test_cold_pair_requires_local_auth_and_csrf_but_not_second_campus_login(inst
     assert client.post('/api/instance/pair', json=payload, headers=headers).status_code == 401
     unlock(rt, client, headers)
     assert client.post('/api/instance/pair', json=payload, headers=headers).status_code == 400
-    csrf = re.search(r'const roomCsrf="([^"]+)"', client.get('/connect', headers=headers).text)[1]
-    assert client.post('/api/instance/pair', json=payload, headers={**headers,'X-CSRF-Token':csrf}).status_code == 200
-    assert rt.configured.is_set() and rt.sync_requested.is_set() and calls == [(payload['url'],payload['ticket'])]
+    assert client.get('/connect', headers=headers).location.endswith('/setup')
+    csrf = re.search(r'const roomCsrf="([^"]+)"', client.get('/setup', headers=headers).text)[1]
+    assert client.post('/api/instance/pair', json=payload, headers={**headers,'X-CSRF-Token':csrf}).status_code == 410
+    assert not rt.configured.is_set() and not rt.sync_requested.is_set() and not calls
 
 
 def test_login_wakes_existing_sync_wait_instead_of_waiting_half_hour(monkeypatch):

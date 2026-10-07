@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="在自己的电脑上查看南科大课表、作业、资料与校园服务。下载安装后，直接在本机浏览器使用。"><title>下载与打开 · 南科大校园面板</title><link rel="stylesheet" href="site.css"></head>
+<body>
+<header><a class="wordmark" href="#">南科大校园面板</a><a href="https://github.com/Rowan-memoedu/SUSTechCampusDashboard">源码</a></header>
+<main>
+<div class="intro"><h1>校园事务，在自己的电脑上处理。</h1><p>课表、作业、课程资料、预约与校园服务，集中在浏览器里。安装本机组件后，用自己的校园账号登录。</p><p class="meta">当前版本 <strong>__VERSION__</strong> · Windows 10 / 11 x64 · Ubuntu 24.04 x64</p></div>
+<section aria-labelledby="start-title"><h2 id="start-title">开始使用</h2>
+<div class="entry"><div><h3>首次使用 Windows</h3><p>下载并打开安装程序，完成系统必要确认。安装结束后会启动组件并打开本机页面，无需安装 Python。</p></div><a class="button" href="downloads/__INSTALLER__" download>下载 Windows 安装包</a></div>
+<div class="entry"><div><h3>已经安装</h3><p>打开这台电脑上的校园面板。浏览器可能会询问是否允许打开应用。</p></div><a id="open-local" class="button secondary" href="sustech-campus://open">打开校园面板</a></div>
+<p id="open-status" class="notice" role="status" hidden></p>
+<div class="entry"><div><h3>自己的 Linux 服务器</h3><p>可在自己的常开服务器运行，由自己管理访问和账号。</p></div><div class="links"><a href="__LINUX_URL__" download>下载 Linux 分发包</a><a href="https://github.com/Rowan-memoedu/SUSTechCampusDashboard/blob/main/UPDATING.md">个人服务器说明</a></div></div>
+</section>
+<section aria-labelledby="changes-title"><h2 id="changes-title">本次更新</h2><ul><li>校园功能统一由本机页面提供，公共网站改为下载和帮助入口。</li><li>安装结束自动打开；快捷方式与“打开校园面板”复用同一本机实例。</li><li>首页显示更新提醒，点击后自动校验、安装并重新连接。</li></ul><p>已安装用户可以在本机的“本机与更新”页面检查更新。暂缓安装不影响当前版本使用。</p></section>
+<section id="help" aria-labelledby="help-title"><h2 id="help-title">使用帮助</h2>
+<details><summary>点击打开后没有反应</summary><p>确认这台 Windows 电脑已经安装，并允许浏览器打开应用。也可以从开始菜单打开“南科大校园面板”。如果尚未安装，请先下载安装包；网页不能代替系统完成首次安装确认。</p></details>
+<details><summary>安装时出现安全或信誉提示</summary><p>请核对下载来源。本项目安装包尚未进行 Windows 代码签名，不要关闭安全检查。若系统不允许安装，请保留提示并通过项目问题页反馈。</p></details>
+<details><summary>账号、课程资料保存在哪里</summary><p>个人页面由当前电脑提供。校园账号、课程与操作记录保存在自己的运行端，课程附件由它直接从学校获取。此发布网站不接收校园账号或私人资料。</p><p>本机“本机与更新”页面会显示数据与资料目录。卸载程序默认保留个人数据和已下载文件。</p></details>
+<details><summary>关闭浏览器或电脑之后还会同步吗</summary><p>关闭浏览器后，后台组件可以继续同步。退出组件、关机或断网时会停止；再次启动后恢复。可在安装时或本机设置中选择登录 Windows 后后台启动，默认不弹出浏览器。</p></details>
+<details><summary>旧公网登录和空间去了哪里</summary><p>运营者业务托管已退役，公共站点不再提供账号登录、校园数据查询或任务队列。已有用户请升级本机组件；迁移记录与未完成事项由维护者单独核对，不会自动重放学校操作。</p></details>
+<details><summary>手机和其他设备能用吗</summary><p>当前分发包面向 Windows x64 与 Ubuntu 24.04 x64。请在安装组件的电脑上打开面板；手机上的此页面不能唤起另一台电脑。</p></details>
+<details><summary>版本与文件核验</summary><p>Windows 安装包 SHA-256：</p><code>__INSTALLER_SHA256__</code><p>后续应用更新由现有签名通道校验。签名确认包的来源和完整性；是否安装仍由你决定。</p></details>
+</section>
+</main><footer><span>独立项目，非学校官方应用</span><a href="https://github.com/Rowan-memoedu/SUSTechCampusDashboard/issues">反馈问题</a><a href="https://github.com/Rowan-memoedu/SUSTechCampusDashboard/blob/main/CLIENT-README.md">使用说明</a></footer><script src="site.js"></script></body></html>

@@ -1,6 +1,7 @@
 """Local browser authentication, first-run login and update controls."""
 import os
 import hashlib
+import hmac
 import secrets
 import threading
 from pathlib import Path
@@ -19,6 +20,17 @@ def register_instance(app, runtime, guard, csrf):
 
     @app.before_request
     def protect_instance():
+        if request.path == '/_instance':
+            try:
+                guard()
+            except ValueError:
+                abort(400)
+            challenge = request.headers.get('X-Instance-Challenge', '')
+            import re
+            if cloud or request.remote_addr not in {'127.0.0.1', '::1'} or not re.fullmatch(r'[a-f0-9]{64}', challenge):
+                abort(404)
+            return jsonify(ready=runtime.ready.is_set(), proof=hmac.new(
+                runtime.token.encode(), challenge.encode(), hashlib.sha256).hexdigest())
         if request.path == "/_health":
             if request.remote_addr not in {"127.0.0.1", "::1"} or not secrets.compare_digest(
                     request.headers.get("X-Instance-Health", ""), runtime.health_token):
@@ -51,7 +63,7 @@ def register_instance(app, runtime, guard, csrf):
                 runtime.active_writes += 1
                 g.campus_write = True
         if not runtime.configured.is_set() and request.endpoint not in {
-                "setup_page", "configure_owner", "instance_status", "settings_page", "static", "check_update", "install_update", "stop_instance", "web_login", "web_logout", "hosted_disconnect", "hosted_password", "connect_page", "local_pair"}:
+                "setup_page", "configure_owner", "instance_status", "instance_preferences", "settings_page", "static", "check_update", "install_update", "stop_instance", "web_login", "web_logout", "hosted_disconnect", "hosted_password", "connect_page", "local_pair"}:
             if request.path.startswith("/api/"):
                 return jsonify({"error": "请先绑定校园账号" if is_hosted else "请先在本机登录校园账号", "setup_required": True}), 401
             return redirect(request.script_root + "/setup")
@@ -145,17 +157,30 @@ def register_instance(app, runtime, guard, csrf):
 
     @app.get("/settings")
     def settings_page():
-        return render_template("settings.html", csrf_token=csrf, api_base=request.script_root)
+        return render_template("settings.html", csrf_token=csrf, api_base=request.script_root, personal_server=cloud)
 
     @app.get("/api/instance")
     def instance_status():
+        from .desktop import preferences
         return jsonify({"version": __version__, "mode": "托管空间" if is_hosted else "个人服务器" if cloud else "本机客户端",
             "execution_mode": mode(), "api_version": 1, "data_format_version": 1,
             "configured": runtime.configured.is_set(), "data_root": '独立私密空间' if is_hosted else str(DATA_ROOT), "download_root": '学校直达浏览器或自己的电脑' if is_hosted else str(DOWNLOAD_ROOT),
             "download_mode": 'school_direct' if cloud else 'local',
             "update": dict(runtime.update.state), "managed": not is_hosted and bool(os.environ.get("SUSTECH_MANAGED_RUNTIME")),
             "last_update": load_json(DATA_ROOT / "updates/last-result.json", {}),
+            "preferences": preferences(DATA_ROOT, DOWNLOAD_ROOT),
             "credential_error": runtime.credential_error})
+
+    @app.post('/api/instance/preferences')
+    def instance_preferences():
+        if cloud:
+            abort(403)
+        try:
+            guard(write=True)
+            from .desktop import save_preferences
+            return jsonify(save_preferences(DATA_ROOT, request.get_json(silent=True)))
+        except (ValueError, OSError) as exc:
+            return jsonify(error=str(exc) if isinstance(exc, ValueError) else '无法保存设置，请检查目录权限'), 400
 
     @app.post("/api/instance/updates/check")
     def check_update():

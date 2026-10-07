@@ -1,83 +1,78 @@
+"""Operator bootstrap is retired; personal-server configuration remains usable."""
 import json
 from types import SimpleNamespace
 
 import pytest
 
-from sustech_dashboard import pairing, download_agent, dpapi_store
+from sustech_dashboard import pairing, download_agent, protocol, runtime
 
 
-@pytest.mark.parametrize('url',['http://dashboard.test/app/','https://u:p@dashboard.test/app/',
-    'https://dashboard.test/app/#token','https://dashboard.test/other','https://dashboard.test:8080/app/'])
-def test_connection_url_does_not_accept_passwords_or_insecure_targets(url):
-    with pytest.raises(ValueError):pairing.server_url(url)
+@pytest.mark.parametrize('path', ['/app/', '/campus/', '/spaces/' + 'f'*24])
+def test_operator_pair_is_rejected_before_decryption_and_network(monkeypatch, tmp_path, path):
+    config = tmp_path / 'cloud-access.dpapi.json'
+    original = json.dumps({'url': 'https://124.221.144.155' + path, 'token_dpapi': 'keep-ciphertext'})
+    config.write_text(original)
+    monkeypatch.setattr(download_agent, 'CONFIG', config)
+    monkeypatch.setattr(download_agent, 'os', SimpleNamespace(name='nt'))
+    monkeypatch.setattr(download_agent, 'unprotect_password', lambda *_: pytest.fail('must not decrypt'))
+    monkeypatch.setattr(download_agent.requests, 'Session', lambda: pytest.fail('must not connect'))
+    assert not download_agent.personal_pair_available()
+    with pytest.raises(ValueError, match='托管已停用'):
+        download_agent.cloud_session()
+    assert config.read_text() == original
 
 
-@pytest.mark.parametrize('outcome',['success','wrong_identity','external_redirect'])
-def test_public_login_pairs_internal_account_without_cas_password(monkeypatch,tmp_path,outcome):
-    monkeypatch.setattr(pairing,'os',SimpleNamespace(name='nt'))
-    monkeypatch.setattr(pairing,'DATA_ROOT',tmp_path)
-    path=tmp_path/'cloud-access.dpapi.json'; monkeypatch.setattr(download_agent,'CONFIG',path)
-    monkeypatch.setattr(dpapi_store,'load_credentials',lambda:('fixture-student','never-upload-cas-password'))
-    monkeypatch.setattr(dpapi_store,'protect_password',lambda value:'encrypted-'+value)
-    monkeypatch.setattr(dpapi_store,'_restrict_directory',lambda path:None)
-    calls=[]
-    class Session:
-        def __enter__(self):return self
-        def __exit__(self,*args):pass
-        def get(self,url,**kwargs):
-            calls.append((url,kwargs)); assert kwargs['allow_redirects'] is False
-            if '/api/' not in url:
-                return SimpleNamespace(text='<input name="csrf" value="fixture-csrf">',raise_for_status=lambda:None)
-            return SimpleNamespace(status_code=400 if outcome=='wrong_identity' else 200,
-                json=lambda:{'username':'member','same_identity':True})
-        def post(self,url,**kwargs):
-            calls.append((url,kwargs));assert kwargs['allow_redirects'] is False
-            return SimpleNamespace(status_code=303,headers={'Location':
-                'https://evil.test/steal' if outcome=='external_redirect' else '/spaces/'+'f'*24+'/'})
-    monkeypatch.setattr(pairing.requests,'Session',Session)
-    if outcome=='success':
-        assert pairing.connect('https://dashboard.test/app/','chosen-public-name','fixture-panel-password')['ok']
-        value=json.loads(path.read_text());assert value['username']=='member'
-        assert value['password_dpapi']=='encrypted-fixture-panel-password'
-    else:
-        with pytest.raises(ValueError):pairing.connect('https://dashboard.test/app/','chosen-public-name','fixture-panel-password')
-        assert not path.exists()
-    assert 'never-upload-cas-password' not in str(calls)
-    assert all(call[0].startswith('https://dashboard.test/') for call in calls)
+def test_personal_server_configuration_is_preserved(monkeypatch, tmp_path):
+    config = tmp_path / 'pair.json'
+    config.write_text(json.dumps({'url': 'https://personal.example/campus',
+        'username': 'owner', 'password_dpapi': 'private'}))
+    monkeypatch.setattr(download_agent, 'CONFIG', config)
+    monkeypatch.setattr(download_agent, 'os', SimpleNamespace(name='nt'))
+    monkeypatch.setattr(download_agent, 'unprotect_password', lambda *_: 'fixture-password')
+    assert download_agent.personal_pair_available()
+    base, session = download_agent.cloud_session()
+    assert base == 'https://personal.example/campus'
+    assert session.auth == ('owner', 'fixture-password')
+    session.close()
 
 
-@pytest.mark.parametrize('tampered', [False, True])
-def test_native_cold_bootstrap_persists_only_authenticated_encrypted_handoff(monkeypatch,tmp_path,tampered):
-    from sustech_dashboard import authentication
-    from sustech_dashboard.credential_transfer import seal
-    monkeypatch.setattr(pairing,'os',SimpleNamespace(name='nt',environ={}))
-    monkeypatch.setattr(authentication,'current_credentials',lambda:None)
-    monkeypatch.setattr(pairing,'DATA_ROOT',tmp_path)
-    config=tmp_path/'pair.json';monkeypatch.setattr(download_agent,'CONFIG',config)
-    monkeypatch.setattr(dpapi_store,'CREDENTIALS_PATH',tmp_path/'credentials.json')
-    monkeypatch.setattr(dpapi_store,'_restrict_directory',lambda path:None)
-    monkeypatch.setattr(dpapi_store,'protect_password',lambda value:'encrypted-'+value)
-    saved=[]
-    monkeypatch.setattr(dpapi_store,'save_paired_credentials',lambda *args:saved.append(args))
-    monkeypatch.setattr(authentication,'set_credentials',lambda *args:None)
-    monkeypatch.setattr(authentication,'clear_credentials',lambda:None)
-    class Session:
-        def __enter__(self):return self
-        def __exit__(self,*args):pass
-        def post(self,url,**kwargs):
-            payload=kwargs['json']
-            if url.endswith('/exchange'):
-                assert payload['sid'] is None and 'fixture-password' not in str(payload)
-                envelope=seal(payload['bootstrap_key'],('fixture-student','fixture-password'),payload['ticket'],payload['device'])
-                if tampered:envelope['ciphertext']='AA'
-                return SimpleNamespace(status_code=200,json=lambda:{'token':'t'*43,'id':'grant','intent':{'kind':'connect'},'bootstrap':envelope})
-            return SimpleNamespace(raise_for_status=lambda:None)
-    monkeypatch.setattr(pairing.requests,'Session',Session)
-    args=('https://124.221.144.155/spaces/'+'f'*24,'g'*43)
-    if tampered:
-        with pytest.raises(ValueError):pairing.connect_ticket(*args)
-        assert not config.exists() and not saved
-    else:
-        assert pairing.connect_ticket(*args)['ok']
-        assert saved==[('fixture-student','fixture-password')]
-        assert 'fixture-password' not in config.read_text()
+def test_retired_pairing_never_bootstraps_credentials():
+    for call, args in [(pairing.connect_ticket, ('https://124.221.144.155/spaces/'+'f'*24, 't'*43)),
+                       (pairing.connect, ('https://124.221.144.155/app/', 'owner', 'password'))]:
+        with pytest.raises(ValueError, match='托管已停用'):
+            call(*args)
+
+
+@pytest.mark.parametrize('uri', [
+    'sustech-campus://login#server=x&key=y', 'sustech-campus://connect#server=x&ticket=y',
+    'sustech-campus://open?url=https://evil.example', 'sustech-campus://open#path=D:/private',
+    'sustech-campus://open/../../file', 'sustech-campus://open --agent', 'sustech-campus://open%00',
+    'sustech-campus://open#', 'sustech-campus://open?', 'sustech-campus://user@open'])
+def test_invalid_protocol_never_launches_or_connects(monkeypatch, uri):
+    monkeypatch.setattr(runtime, 'supervise', lambda *a, **k: pytest.fail('must not launch'))
+    with pytest.raises(ValueError):
+        protocol.handle_uri(uri)
+
+
+def test_open_protocol_only_calls_local_supervisor(monkeypatch):
+    calls = []
+    monkeypatch.setattr(runtime, 'supervise', lambda *a, **k: calls.append((a, k)) or 0)
+    assert protocol.handle_uri('sustech-campus://open', 18777) == 0
+    assert calls == [((18777,), {'open_browser': True})]
+
+
+def test_duplicate_start_proves_local_owner_before_opening(monkeypatch, tmp_path):
+    from sustech_dashboard.locking import exclusive_file
+    monkeypatch.setattr(runtime, 'DATA_ROOT', tmp_path)
+    monkeypatch.setattr(runtime, 'prepare_private_directory', lambda: None)
+    opened = []
+    monkeypatch.setattr(runtime.webbrowser, 'open', opened.append)
+    monkeypatch.setattr(runtime, 'wait_existing', lambda *a: False)
+    with exclusive_file(tmp_path / 'client.lock'):
+        with pytest.raises(RuntimeError):
+            runtime.supervise(18778)
+    assert not opened
+    monkeypatch.setattr(runtime, 'wait_existing', lambda *a: True)
+    with exclusive_file(tmp_path / 'client.lock'):
+        assert runtime.supervise(18778) == 0
+    assert opened[0].startswith('http://127.0.0.1:18778/#access=')

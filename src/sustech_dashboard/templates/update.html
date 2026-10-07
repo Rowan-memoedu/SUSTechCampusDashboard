@@ -1,0 +1,7 @@
+<section class="wide update-panel" id="update-panel" {% if update_compact %}hidden data-compact="true"{% endif %}>
+<div class="update-heading"><h2 id="update-title">版本更新</h2><a href="{{ api_base }}/settings">更新设置</a></div>
+<p id="update-state" role="status" aria-live="polite">正在读取版本状态…</p>
+<p id="update-notes" class="muted" hidden></p>
+<div class="actions"><button id="update-check" type="button" class="secondary">检查更新</button><button id="update-install" type="button" disabled>安装更新</button></div>
+<p class="muted">点击后自动下载和校验，等待当前操作结束，再重启并恢复页面。未保存的校园登录需要重新输入；个人数据和已下载文件保留。</p>
+</section>

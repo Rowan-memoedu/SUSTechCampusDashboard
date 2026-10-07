@@ -1,6 +1,6 @@
 # 校园面板开发边界
 
-- 当前路线与验收以 docs/WEB-HOSTED-PLAN.md 为准，新 Thread 从 docs/LOCAL-MODE-HANDOFF.md 开始。第二阶段已确认取消运营者托管，公网保留静态发布页和 TUF；本轮仅文档交接，代码/部署/迁移/清理尚未实施。docs/HOSTED-PHASE1.md 是历史及退役前基线，不能把旧部署步骤当成继续开通托管的授权。
+- 当前范围以 docs/WEB-HOSTED-PLAN.md 为准，实施与线上状态以 docs/LOCAL-MODE-ACCEPTANCE.md 为准；新 Thread 从 docs/LOCAL-MODE-HANDOFF.md 开始。0.4.0 已发布，真实迁移和运营者托管退役已完成；首次交互使用仍须独立验收。docs/HOSTED-PHASE1.md 是历史及退役前基线，不能把旧部署步骤当成恢复托管的授权。
 - 一个用户、一个进程、一个私密目录；上游认证有进程全局状态，禁止逐请求切换账号。复用 Flask 页面、业务适配器和 SQLite 账本，保持本机与用户自有 Linux 服务器兼容。
 - 默认个人页面与业务脚本由本机提供。禁止默认跳公网登录、恢复运营者配对或引入远程个人数据依赖；个人服务器的显式配置不得误删。
 - 不输出真实账号、密码、Cookie、邀请/设备令牌或校园正文。现有 DPAPI、systemd 凭据按所属用户保护；签名密钥、运行数据、恢复材料不进入 Git 和公开产物。

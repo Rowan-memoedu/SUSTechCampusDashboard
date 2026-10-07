@@ -133,7 +133,7 @@ def test_interrupted_pending_install_with_unlaunchable_binary_rolls_back(monkeyp
     from sustech_dashboard.core import save_json
     monkeypatch.setattr(runtime, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(runtime, "prepare_private_directory", lambda: None)
-    pending = {"directory": "0.3.0-" + "a"*16, "version": "0.3.0", "schema": 1}
+    pending = {"directory": "9.0.0-" + "a"*16, "version": "9.0.0", "schema": 1}
     save_json(tmp_path / "updates/pending.json", pending)
     (tmp_path / "account-fixture").write_bytes(b"keep")
     calls = []
@@ -152,3 +152,22 @@ def test_interrupted_pending_install_with_unlaunchable_binary_rolls_back(monkeyp
     assert load_json(tmp_path / "updates/last-result.json", {})["state"] == "rolled_back"
     assert not (tmp_path / "updates/pending.json").exists()
     assert (tmp_path / "account-fixture").read_bytes() == b"keep"
+
+
+def test_new_installer_does_not_launch_older_current_pointer(monkeypatch, tmp_path):
+    from sustech_dashboard import runtime, __version__
+    from sustech_dashboard.core import save_json
+    monkeypatch.setattr(runtime, 'DATA_ROOT', tmp_path)
+    monkeypatch.setattr(runtime, 'prepare_private_directory', lambda: None)
+    save_json(tmp_path / 'updates/current.json', {'directory': '0.1.0-' + 'a'*16, 'version': '0.1.0'})
+    launched = []
+    class Process:
+        def wait(self, **kwargs): return 0
+        def poll(self): return 0
+    monkeypatch.setattr(runtime.subprocess, 'Popen', lambda command, **kwargs: (launched.append(command) or Process()))
+    def ready(child, port, token, version):
+        assert version == __version__
+        return True
+    monkeypatch.setattr(runtime, 'wait_ready', ready)
+    assert runtime.supervise(18799, False) == 0
+    assert launched[0][0] == runtime.sys.executable

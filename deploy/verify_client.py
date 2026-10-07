@@ -23,7 +23,8 @@ def verify(executable, cache):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    env = dict(os.environ, SUSTECH_DASHBOARD_DATA_ROOT=str(root), SUSTECH_DOWNLOAD_ROOT=str(root / "files"))
+    env = dict(os.environ, SUSTECH_DASHBOARD_DATA_ROOT=str(root), SUSTECH_DOWNLOAD_ROOT=str(root / "files"),
+               SUSTECH_REGISTER_PROTOCOL='0', SUSTECH_EXECUTION_MODE='local')
     for key in ("SUSTECH_CLOUD", "SUSTECH_PUBLIC_HOST", "CREDENTIALS_DIRECTORY", "SUSTECH_MANAGED_RUNTIME"):
         env.pop(key, None)
     selftest = subprocess.run([str(executable), "--self-test"], env=env, capture_output=True, timeout=60)

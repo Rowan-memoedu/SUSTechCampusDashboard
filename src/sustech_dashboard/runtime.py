@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import os
 import secrets
 import signal
@@ -92,8 +94,8 @@ class Runtime:
 
     def start_print_agent(self):
         from .execution import mode
-        from .download_agent import CONFIG
-        if mode() != 'local' or not CONFIG.exists():return
+        from .download_agent import personal_pair_available
+        if mode() != 'local' or not personal_pair_available():return
         if self.print_worker and self.print_worker.is_alive():return
         from .print_agent import run
         def after_login():
@@ -118,12 +120,14 @@ class Runtime:
                 self.update.stage()
                 with self.guard:
                     self.draining = True
+                self.update.state.update(state='waiting', message='更新已校验，等待正在进行的提交、下载和回执完成')
                 self.stop.set()
                 # Let downloads, one-shot school writes and their acknowledgements finish.
                 for worker in self.workers:
                     worker.join()
                 with self.guard:
                     self.guard.wait_for(lambda: self.active_writes == 0)
+                self.update.state.update(state='restarting', message='正在切换版本，页面将自动重新连接')
                 self.restart = True
             except Exception:
                 pass  # UpdateManager retains a sanitized, visible failure.
@@ -133,6 +137,9 @@ class Runtime:
 
 
 def backend(port=18765):
+    from .execution import hosted
+    if hosted():
+        raise ValueError('运营者托管已退役；请使用本机或用户自有服务器模式')
     from waitress import create_server
     from .app import create_app
     prepare_private_directory()
@@ -184,20 +191,42 @@ def child_command(executable, port):
     return [str(executable), "-m", "sustech_dashboard.client", "--backend", "--port", str(port)]
 
 
-def supervise(port=18765, open_browser=True, local_only=False):
-    from .updates import release_executable
+def wait_existing(port, token, timeout=65):
+    """Prove the listener owns our token before handing a browser the fragment."""
+    import requests
+    challenge = secrets.token_hex(32)
+    proof = hmac.new(token.encode(), challenge.encode(), hashlib.sha256).hexdigest()
+    deadline = time.monotonic() + timeout
+    with requests.Session() as session:
+        session.trust_env = False
+        while time.monotonic() < deadline:
+            try:
+                reply = session.get(f'http://127.0.0.1:{port}/_instance',
+                    headers={'X-Instance-Challenge': challenge}, timeout=2, allow_redirects=False)
+                result = reply.json()
+                if reply.ok and result.get('ready') is True and hmac.compare_digest(result.get('proof', ''), proof):
+                    return True
+            except (requests.RequestException, ValueError, TypeError):
+                pass
+            time.sleep(.25)
+    return False
+
+
+def supervise(port=18765, open_browser=True, local_only=True):
+    from .updates import release_executable, valid_version
+    from .protocol import installation_owner
     prepare_private_directory()
     url = f"http://127.0.0.1:{port}/#access={owner_token()}"
-    from .dpapi_store import CREDENTIALS_PATH
-    if os.name == 'nt' and not local_only and not CREDENTIALS_PATH.exists():
-        url = 'https://' + os.environ.get('SUSTECH_PAIR_HOST', '124.221.144.155') + '/app/'
     try:
         lock = exclusive_file(DATA_ROOT / "client.lock")
         lock.__enter__()
     except InstanceBusy:
-        if open_browser:
+        if open_browser and wait_existing(port, owner_token()):
             webbrowser.open(url)
-        return 0
+            return 0
+        if not open_browser:
+            return 0
+        raise RuntimeError('本机组件尚未就绪或端口被占用，请稍后重新打开面板')
     child = None
     def shutdown(*_):
         raise KeyboardInterrupt
@@ -206,13 +235,24 @@ def supervise(port=18765, open_browser=True, local_only=False):
         base = DATA_ROOT / "updates"
         current = load_json(base / "current.json", {})
         fallback = sys.executable
-        selected = load_json(base / "pending.json", {}) or current
+        # A newer installer must not launch a stale version from an earlier
+        # installation. Keep its disk pointer as recovery evidence; use the
+        # bundled executable as this supervisor's rollback baseline.
+        if current and valid_version(current['version']) < valid_version(__version__):
+            current = {}
+        pending = load_json(base / "pending.json", {})
+        if pending and valid_version(pending['version']) < valid_version(__version__):
+            save_json(base / 'last-result.json', {'state': 'superseded', 'version': __version__})
+            (base / 'pending.json').unlink(missing_ok=True)
+            pending = {}
+        selected = pending or current
         restarting = selected != current
         while True:
             candidate = release_executable(base, selected, fallback)
             version = selected.get("version", __version__)
             health = secrets.token_urlsafe(32)
-            env = dict(os.environ, SUSTECH_HEALTH_TOKEN=health, SUSTECH_MANAGED_RUNTIME="1", PYINSTALLER_RESET_ENVIRONMENT="1")
+            env = dict(os.environ, SUSTECH_HEALTH_TOKEN=health, SUSTECH_MANAGED_RUNTIME="1", PYINSTALLER_RESET_ENVIRONMENT="1",
+                       SUSTECH_INSTALL_ROOT=installation_owner())
             try:
                 child = subprocess.Popen(child_command(candidate, port), env=env,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
