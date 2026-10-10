@@ -20,6 +20,7 @@ def _pwsh(script: str, value: str) -> str:
     result = subprocess.run(
         ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
         input=value, text=True, encoding="utf-8", capture_output=True, timeout=20,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
     if result.returncode != 0 or not result.stdout.strip():
         raise RuntimeError("Windows 凭据加解密失败")
@@ -82,11 +83,13 @@ def _crypt(data: bytes, *, protect: bool) -> bytes:
 def _restrict_directory(path: Path) -> None:
     user = subprocess.check_output(
         ["whoami", "/user", "/fo", "csv", "/nh"], text=True, encoding="utf-8", timeout=10,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
     user_sid = next(csv.reader([user.strip()]))[1]
     subprocess.run(
         ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{user_sid}:(OI)(CI)F"],
         check=True, capture_output=True, text=True, timeout=10,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
 
 

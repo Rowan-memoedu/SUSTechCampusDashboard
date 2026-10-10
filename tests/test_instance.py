@@ -184,3 +184,13 @@ def test_dpapi_compatible_with_previous_powershell_storage():
     secret = "fixture-password-中文"
     assert unprotect_password(_pwsh(_ENCRYPT, secret)) == secret
     assert unprotect_password(protect_password(secret)) == secret
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows console process")
+def test_credential_helper_has_no_console():
+    from sustech_dashboard.dpapi_store import _pwsh
+    script = '''
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class ConsoleProbe { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }'
+[Console]::Out.Write([ConsoleProbe]::GetConsoleWindow().ToInt64())
+'''
+    assert _pwsh(script, '') == '0'

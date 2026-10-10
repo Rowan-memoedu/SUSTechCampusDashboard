@@ -15,7 +15,9 @@ def main():
     session = requests.Session()
     page = session.get(base + '/app/', timeout=30)
     assert page.status_code == 200 and 'text/html' in page.headers['Content-Type']
-    assert '0.4.0' in page.text and 'sustech-campus://open' in page.text
+    page.encoding = 'utf-8'
+    assert 'href="http://127.0.0.1:18765/"' in page.text and '网页按钮只访问正在运行的后台' in page.text
+    assert 'sustech-campus://open' not in page.text
     assert 'frame-ancestors' in page.headers['Content-Security-Policy']
     assert session.post(base + '/app/', data={}, timeout=15).status_code == 410
     assert session.post(base + '/app', data={}, timeout=15, allow_redirects=False).status_code == 410
@@ -24,7 +26,7 @@ def main():
     for name in ('site.css', 'site.js', 'tokens.css'):
         assert session.get(base + '/app/' + name, timeout=15).status_code == 200
     record = session.get(base + '/app/release.json', timeout=15).json()
-    assert record['version'] == '0.4.0'
+    assert record['version'] in page.text
     digest, size = hashlib.sha256(), 0
     with session.get(base + '/app/downloads/' + record['filename'], stream=True, timeout=(15, 60)) as response:
         response.raise_for_status()

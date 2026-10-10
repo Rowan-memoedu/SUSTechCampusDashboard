@@ -79,7 +79,8 @@ def verify(executable, cache, expected):
                 if value['version'] == expected:
                     break
                 if value['update'].get('state') == 'error':
-                    raise RuntimeError('Signed upgrade failed; see private canary log')
+                    error = value['update'].get('error', 'unknown')
+                    raise RuntimeError(f'Signed upgrade failed ({error}); see private canary log')
             except (requests.RequestException, json.JSONDecodeError):
                 pass
             time.sleep(2)
