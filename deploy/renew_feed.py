@@ -18,6 +18,7 @@ import requests
 from tuf.api.metadata import Metadata
 
 import publish_release
+from feed_metadata import verified_feed as read_feed, reject_rollback
 from sustech_dashboard.updates import RELEASE_URL, TRUST_ROOT, UpdateManager
 
 REPOSITORY = Path("D:/Artifacts/SUSTechCampusDashboard/feed")
@@ -45,37 +46,7 @@ def verified_feed(fetch, *, bootstrap=None, now=None):
     Only this publisher permits expired non-root metadata; normal clients still
     enforce expiry through TUF. The root remains pinned and must be unexpired.
     """
-    now = now or datetime.now(timezone.utc)
-    root_bytes = bootstrap if bootstrap is not None else TRUST_ROOT.read_bytes()
-    root = Metadata.from_bytes(root_bytes)
-    if root.signed.is_expired(now):
-        raise ValueError("Trust root expired; maintainer must rotate it")
-    if root.signed.version != 1:
-        raise ValueError("Root rotation needs an updated publisher")
-    blobs, roles = {}, {}
-    for role in ("timestamp", "snapshot", "targets"):
-        if role == "timestamp":
-            name = "timestamp.json"
-        else:
-            info = (roles["timestamp"].signed.snapshot_meta if role == "snapshot"
-                    else roles["snapshot"].signed.meta["targets.json"])
-            name = f"{info.version}.{role}.json"
-        blob = fetch(name)
-        if role != "timestamp":
-            info.verify_length_and_hashes(blob)
-        item = Metadata.from_bytes(blob)
-        if item.signed.type != role:
-            raise ValueError("Incorrect metadata role")
-        root.signed.verify_delegate(role, item.signed_bytes, item.signatures)
-        if role != "timestamp" and item.signed.version != info.version:
-            raise ValueError("Metadata version differs from signed chain")
-        roles[role], blobs[role + ".json"] = item, blob
-    if set(roles["targets"].signed.targets) != PLATFORMS:
-        raise ValueError("Renewal expects the existing Windows and Linux releases")
-    blobs["root.json"] = blobs["1.root.json"] = root_bytes
-    for role in ("snapshot", "targets"):
-        blobs[f"{roles[role].signed.version}.{role}.json"] = blobs[role + ".json"]
-    return blobs, roles
+    return read_feed(fetch, bootstrap if bootstrap is not None else TRUST_ROOT.read_bytes(), now=now)
 
 
 def needs_renewal(roles, now, days=14):
@@ -105,10 +76,11 @@ def upload(metadata, previous_timestamp):
         raise ValueError("Unexpected remote staging path")
     files = [str(p) for p in metadata.glob("*.json")]
     files.append(str(Path(__file__).with_name("publish_feed.py")))
+    files.append(str(Path(__file__).with_name("feed_metadata.py")))
     run_command(["scp", *SSH_OPTIONS, *files, SSH_HOST + ":" + remote + "/"])
     expected = hashlib.sha256(previous_timestamp).hexdigest()
     run_command(["ssh", *SSH_OPTIONS, SSH_HOST,
-        f"sudo -n python3 {remote}/publish_feed.py {remote} --renew-only --expected-timestamp {expected}"])
+        f"sudo -n /opt/sustech-campus-renewal/venv/bin/python {remote}/publish_feed.py {remote} --renew-only --expected-timestamp {expected}"])
     # Tiny public staging files are retained for troubleshooting; no keys uploaded.
 
 
@@ -131,12 +103,7 @@ def renew(repository=REPOSITORY, *, force=False, days=14):
     local = repository / "metadata"
     if (local / "timestamp.json").exists():
         _, previous = verified_feed(lambda name: (local / name).read_bytes(), now=now)
-        for role in roles:
-            if roles[role].signed.version < previous[role].signed.version:
-                raise ValueError("Public feed is older than the publisher mirror")
-            if (roles[role].signed.version == previous[role].signed.version
-                    and roles[role].signed_bytes != previous[role].signed_bytes):
-                raise ValueError("Same metadata version has different content")
+        reject_rollback(roles, previous)
     repository.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="renewal-", dir=repository.parent) as scratch:
         work = Path(scratch)

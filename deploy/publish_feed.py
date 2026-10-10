@@ -1,18 +1,23 @@
-"""Server-side atomic publication of public metadata; no signing keys here."""
+"""Atomic publication, shared by offline releases and restricted online renewal."""
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import argparse
+from feed_metadata import verified_feed, reject_rollback
 
 
-def publish(source, root, *, expected_timestamp=None, renew_only=False):
+def publish(source, root, *, expected_timestamp=None, renew_only=False, bootstrap=None):
     """Caller holds the server lock; commit timestamp only after all checks."""
+    trusted = bootstrap if bootstrap is not None else (root / "metadata" / "root.json").read_bytes()
+    _, signed = verified_feed(lambda n: (source / n).read_bytes(), trusted)
     metadata = json.loads((source / "targets.json").read_text())
     incoming = json.loads((source / "timestamp.json").read_text())
     current_path = root / "metadata" / "timestamp.json"
     if current_path.exists():
+        _, prior = verified_feed(lambda n: (root / "metadata" / n).read_bytes(), trusted)
+        reject_rollback(signed, prior)
         current_bytes = current_path.read_bytes()
         current = json.loads(current_bytes)
         if expected_timestamp and hashlib.sha256(current_bytes).hexdigest() != expected_timestamp:
@@ -45,6 +50,11 @@ def publish(source, root, *, expected_timestamp=None, renew_only=False):
 
     files = sorted(p for p in source.glob("*.json") if p.name != "timestamp.json")
     files.append(source / "timestamp.json")
+    # Versioned files are immutable, including during interrupted publications.
+    for path in files:
+        existing = root / "metadata" / path.name
+        if path.name[0].isdigit() and existing.exists() and existing.read_bytes() != path.read_bytes():
+            raise ValueError("Versioned metadata already exists with different content")
     for path in files:
         temporary = root / "metadata" / (path.name + ".new")
         shutil.copyfile(path, temporary)
@@ -65,4 +75,5 @@ if __name__ == "__main__":
     with (root / ".publish.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         print(json.dumps(publish(args.source.resolve(), root,
-            expected_timestamp=args.expected_timestamp, renew_only=args.renew_only)))
+            expected_timestamp=args.expected_timestamp, renew_only=args.renew_only,
+            bootstrap=Path('/etc/sustech-campus-renewal/trust-root.json').read_bytes())))

@@ -12,7 +12,7 @@
 - 发布页开发使用 Hallmark 新页面流程，本机更新 UI 按现有组件范围；不扩大为无关全站改版。只读截图/检查优先，HTTP 200 不等于界面验收。
 - 修改前检查工作树与线上版本，保留并行改动。新版在 Windows 和 Linux 跑 pytest，保留个人服务器的真实 nginx 上传回归；分发包和全新安装另行验证。
 - 本机 Python：D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe；测试/构建缓存指定 D:\Caches，产物进入 D:\Artifacts\SUSTechCampusDashboard。真实数据与隔离验收目录分开。
-- 程序构建复用 deploy/build_client.py，更新/续签按 UPDATING.md。deploy/pack_hosted.py 等旧托管脚本仅按迁移/维护需要保留，不用其重新部署运营者业务服务。
+- 程序构建复用 deploy/build_client.py，更新/续签按 UPDATING.md。续签现役入口为服务器 systemd；根／targets 私钥只在本机，不上传服务器，不恢复旧 Windows／Codex 调度。deploy/pack_hosted.py 等旧托管脚本仅按迁移/维护需要保留，不用其重新部署运营者业务服务。
 - 服务器清理按总计划精确清单执行：先一致性备份、共享引用迁移和 D 盘恢复核验，再删除项目独占资源。retire_trial.py 会重建托管服务，不能充当最终退役工具。
 - nginx 与 GraspMemoEdu 共用配置，只改校园块；保留 /campus-updates/、更新文件、TLS、其他网站、发布密钥和续签任务。不得删除共享配置/凭据根目录或全机日志。
 - 只停止/重启此次目标服务，用户正在使用的应用重启按现行协作规则处理。最终报告区分文档、代码、fixture、实际包、线上资源及用户首次使用，不把待实施写成已完成。

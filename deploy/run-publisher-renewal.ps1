@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+throw 'Publisher-PC background renewal has retired. Use server systemd renewal; offline release signing remains local.'
 $renewScript = Join-Path $PSScriptRoot 'renew_feed.py'
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) { throw 'Publisher Python is missing.' }
 if (-not (Test-Path -LiteralPath $renewScript -PathType Leaf)) { throw 'Renewal script is missing.' }

@@ -122,7 +122,7 @@
 
 - 静态更新源 `/var/www/sustech-campus-updates`、`/campus-updates/` 路由、所需 root 历史、签名元数据和客户端目标文件。不得把仍被元数据引用或恢复所需的包当作垃圾删除。
 - 新静态发布页及 `/app/` 入口，服务器共享 nginx、TLS 证书和续期、宿主 systemd 凭据密钥、网络规则、SSH 以及 GraspMemoEdu 等其他项目。
-- 发布者本机 `D:\AppData\SUSTechCampusPublisher` 的签名密钥、公开镜像与续签能力；撤销业务托管不撤销更新通道。按最新纠正，由发布者电脑后台每 20 天续签，不依赖 Codex 定时任务；须核验后台配置和公网客户端验签。
+- 发布者本机 `D:\AppData\SUSTechCampusPublisher` 的根／安装包签名密钥、公开镜像与发布能力；撤销业务托管不撤销更新通道。按最新确认，由服务器仅用快照／时间戳密钥每 20 天续签，每小时检查／失败重试并发邮件告警；旧 Windows 续签停用，不依赖 Codex。运行边界见 [UPDATING.md](../UPDATING.md)。
 - 用户现有本机凭据、数据、已下载文件和新建的受限恢复副本。
 
 ### 迁移与恢复验证后移除

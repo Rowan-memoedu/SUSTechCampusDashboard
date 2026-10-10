@@ -151,6 +151,182 @@ def test_server_refuses_unsafe_publication_before_timestamp_commit(feed, tmp_pat
     else:
         (public / "targets/linux-x86_64.zip").write_bytes(b"broken")
     before = {p.name: p.read_bytes() for p in (public / "metadata").iterdir()}
-    with pytest.raises(ValueError):
+    with pytest.raises((ValueError, UnsignedMetadataError, LengthOrHashMismatchError)):
         server.publish(stage / "metadata", public, expected_timestamp=expected, renew_only=True)
     assert {p.name: p.read_bytes() for p in (public / "metadata").iterdir()} == before
+
+
+@pytest.fixture
+def online(feed, tmp_path):
+    renewal, publisher, server, public, keys = feed
+    online_module = importlib.import_module("server_renewal")
+    key_file = tmp_path / "online.json"
+    key_file.write_text(json.dumps({r: keys[r].private_bytes.decode() for r in ("snapshot", "timestamp")}))
+    messages = []
+
+    def check(bootstrap, cache, *, expected=None):
+        client = renewal.UpdateManager(cache)._client()
+        client.refresh()
+        assert hashlib.sha256((cache / "updates/metadata/timestamp.json").read_bytes()).hexdigest() == expected
+        return {name: client.get_targetinfo(name).unrecognized_fields["custom"]["version"] for name in renewal.PLATFORMS}
+
+    worker = online_module.Renewal(public, tmp_path / "state", publisher.TRUST_ROOT.read_bytes(), key_file, {},
+                                  check=check, notify=lambda config, subject, body: messages.append((subject, body)))
+    return worker, messages, feed
+
+
+def test_online_renewal_keeps_offline_authorization_and_supports_later_release(online):
+    worker, _, (_, publisher, _, public, _) = online
+    targets = (public / "metadata/targets.json").read_bytes()
+    root = (public / "metadata/root.json").read_bytes()
+    assert Metadata.from_bytes(targets).signed.expires == Metadata.from_bytes(root).signed.expires
+    assert worker.run(force=True)["status"] == "renewed"
+    assert worker.run(force=True)["status"] == "renewed"
+    assert (public / "metadata/targets.json").read_bytes() == targets
+    assert (public / "metadata/root.json").read_bytes() == root
+    old_timestamp = Metadata.from_file(str(public / "metadata/timestamp.json")).signed.version
+    publisher.publish(public, [])
+    assert Metadata.from_file(str(public / "metadata/timestamp.json")).signed.version > old_timestamp
+    assert worker.run()["client_verified"] is True
+
+
+def test_online_retry_after_readback_failure_does_not_sign_again(online, monkeypatch):
+    worker, messages, (_, _, _, public, _) = online
+    check = worker.check
+    worker.check = lambda *a, **k: (_ for _ in ()).throw(ConnectionError("offline"))
+    assert worker.run(force=True)["status"] == "error"
+    after = (public / "metadata/timestamp.json").read_bytes()
+    worker.check = check
+    monkeypatch.setattr(importlib.import_module("server_renewal"), "load_online_keys", forbid_signing)
+    result = worker.run()
+    assert result["status"] == "renewed"
+    assert result["client_verified"] is True
+    assert (public / "metadata/timestamp.json").read_bytes() == after
+    assert len(messages) == 2
+    assert "失败" in messages[0][0] and "恢复" in messages[1][0]
+
+
+def test_alert_delivery_failure_retries_without_resigning(online, monkeypatch):
+    worker, messages, (_, _, _, public, _) = online
+    send = worker.notify
+    worker.notify = lambda *a: (_ for _ in ()).throw(ConnectionError("smtp offline"))
+    first = worker.run(force=True, test_alert=True)
+    assert first["pending_alerts"] == 1 and first["mail_error"] == "ConnectionError"
+    after = (public / "metadata/timestamp.json").read_bytes()
+    worker.notify = send
+    monkeypatch.setattr(importlib.import_module("server_renewal"), "load_online_keys", forbid_signing)
+    assert worker.run()["pending_alerts"] == 0
+    assert (public / "metadata/timestamp.json").read_bytes() == after
+    assert len(messages) == 1
+
+
+def test_failure_alerts_are_deduplicated_and_reminded_daily(online):
+    worker, messages, _ = online
+    worker.check = lambda *a, **k: (_ for _ in ()).throw(ConnectionError("offline"))
+    now = datetime.now(timezone.utc)
+    worker.run(now=now, force=True)
+    worker.run(now=now + timedelta(hours=1))
+    assert len(messages) == 1
+    worker.run(now=now + timedelta(days=1, seconds=1))
+    assert len(messages) == 2
+
+
+def test_server_rejects_offline_key_export_and_wrong_role(online):
+    worker, _, (_, _, _, _, keys) = online
+    module = importlib.import_module("server_renewal")
+    payload = json.loads(worker.keys.read_text())
+    payload["targets"] = keys["targets"].private_bytes.decode()
+    worker.keys.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="only snapshot"):
+        module.load_online_keys(worker.keys, worker.bootstrap)
+    payload.pop("targets")
+    payload["timestamp"] = keys["targets"].private_bytes.decode()
+    worker.keys.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="not authorized"):
+        module.load_online_keys(worker.keys, worker.bootstrap)
+
+
+def test_expired_online_metadata_recovers_without_targets_key(online):
+    worker, _, (_, _, _, public, keys) = online
+    ts = Metadata.from_file(str(public / "metadata/timestamp.json"))
+    snap = Metadata.from_file(str(public / "metadata/1.snapshot.json"))
+    snap.signed.expires = datetime.now(timezone.utc) - timedelta(days=1)
+    snap.sign(keys["snapshot"])
+    snap.to_file(str(public / "metadata/1.snapshot.json"))
+    ts.signed.snapshot_meta = importlib.import_module("tuf.api.metadata").MetaFile.from_data(1, snap.to_bytes(), ["sha256"])
+    ts.signed.expires = datetime.now(timezone.utc) - timedelta(days=1)
+    ts.sign(keys["timestamp"])
+    ts.to_file(str(public / "metadata/timestamp.json"))
+    assert worker.run()["client_verified"] is True
+
+
+def test_offline_expiry_has_no_online_bypass_and_warns_90_days_early(online):
+    worker, messages, (_, _, _, public, _) = online
+    assert worker.run(force=True)["client_verified"] is True
+    before = (public / "metadata/timestamp.json").read_bytes()
+    roles = importlib.import_module("feed_metadata").verified_feed(
+        lambda n: (public / "metadata" / n).read_bytes(), worker.bootstrap)[1]
+    now = roles["targets"].signed.expires - timedelta(days=89)
+    state = worker.load()
+    worker.deadlines(state, roles, now)
+    worker.flush(state, now)
+    assert len(messages) == 2  # root and targets require offline maintenance
+    expired = worker.run(now=roles["targets"].signed.expires + timedelta(days=1))
+    assert expired["status"] == "error"
+    assert (public / "metadata/timestamp.json").read_bytes() == before
+
+
+def test_online_mirror_detects_signed_rollback(online):
+    worker, _, (_, _, _, public, _) = online
+    originals = {p.name: p.read_bytes() for p in (public / "metadata").iterdir()}
+    worker.run(force=True)
+    for name, blob in originals.items():
+        (public / "metadata" / name).write_bytes(blob)
+    result = worker.run()
+    assert result["status"] == "error"
+    assert "older" in result["detail"]
+
+
+def test_offline_publication_refreshes_stale_mirror_after_online_renewals(online, tmp_path):
+    worker, _, (renewal, publisher, server, public, _) = online
+    mirror = tmp_path / "offline-mirror"
+    blobs, _ = renewal.verified_feed(renewal.get_public)
+    renewal.save_metadata(mirror / "metadata", blobs)
+    worker.run(force=True)
+    worker.run(force=True)
+    publisher.sync_public(mirror)
+    assert (mirror / "metadata/timestamp.json").read_bytes() == (public / "metadata/timestamp.json").read_bytes()
+    before = Metadata.from_file(str(public / "metadata/timestamp.json")).signed.version
+    publisher.publish(mirror, [])
+    server.publish(mirror / "metadata", public)
+    assert Metadata.from_file(str(public / "metadata/timestamp.json")).signed.version > before
+    assert worker.run()["client_verified"] is True
+
+
+def test_independent_startup_alert_retries_transport_and_marks_recovery(online):
+    worker, messages, _ = online
+    module = importlib.import_module("renewal_failure_alert")
+    worker.state_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc)
+    def offline(*a):
+        raise ConnectionError("SMTP offline")
+    failed = module.alert(worker.state_dir, {}, now=now, send=offline)
+    assert failed["pending_alerts"] == 1
+    sent = []
+    result = module.alert(worker.state_dir, {}, now=now + timedelta(hours=1),
+                          send=lambda config, subject, body: sent.append(subject))
+    assert result["pending_alerts"] == 0 and len(sent) == 1
+    module.alert(worker.state_dir, {}, now=now + timedelta(hours=2),
+                 send=lambda config, subject, body: sent.append(subject))
+    assert len(sent) == 1
+    assert worker.run()["client_verified"]
+    assert len(messages) == 1 and "恢复" in messages[0][0]
+
+
+def test_onfailure_does_not_duplicate_an_already_handled_failure(online):
+    worker, messages, _ = online
+    module = importlib.import_module("renewal_failure_alert")
+    worker.check = lambda *a, **k: (_ for _ in ()).throw(ConnectionError("offline"))
+    assert worker.run()["status"] == "error"
+    assert module.alert(worker.state_dir, {}, send=forbid_signing)["already_handled"] is True
+    assert len(messages) == 1

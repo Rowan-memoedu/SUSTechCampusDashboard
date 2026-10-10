@@ -54,7 +54,12 @@ def publish(repository, archives):
     target_metadata = Metadata.from_file(str(old)) if old.exists() else Metadata(Targets(version=1))
     if old.exists():
         target_metadata.signed.version += 1
-    target_metadata.signed.expires = now + timedelta(days=120)
+    # Package authorization stays offline and lasts until the pinned root's
+    # maintenance deadline. Online snapshot/timestamp renewal cannot extend it.
+    root = Metadata.from_file(str(TRUST_ROOT))
+    if root.signed.is_expired(now):
+        raise ValueError("Trust root expired; rotate it before publishing")
+    target_metadata.signed.expires = root.signed.expires
     for archive in archives:
         with zipfile.ZipFile(archive) as zipped:
             release = json.loads(zipped.read("release.json"))
@@ -76,19 +81,41 @@ def publish(repository, archives):
     version = target_metadata.signed.version
     target_metadata.to_file(str(metadata / f"{version}.targets.json"))
     target_metadata.to_file(str(old))
-    snapshot = Metadata(Snapshot(version=version, expires=now + timedelta(days=60), meta={
+    # The server advances these versions independently of targets.json.
+    snapshot_old = metadata / "snapshot.json"
+    snapshot_version = max(version, Metadata.from_file(str(snapshot_old)).signed.version + 1) if snapshot_old.exists() else version
+    timestamp_old = metadata / "timestamp.json"
+    timestamp_version = max(version, Metadata.from_file(str(timestamp_old)).signed.version + 1) if timestamp_old.exists() else version
+    snapshot = Metadata(Snapshot(version=snapshot_version, expires=now + timedelta(days=30), meta={
         "targets.json": MetaFile.from_data(version, old.read_bytes(), ["sha256"])}))
     snapshot.sign(signers["snapshot"])
-    snapshot.to_file(str(metadata / f"{version}.snapshot.json"))
+    snapshot.to_file(str(metadata / f"{snapshot_version}.snapshot.json"))
     snapshot.to_file(str(metadata / "snapshot.json"))
-    timestamp = Metadata(Timestamp(version=version, expires=now + timedelta(days=30),
-        snapshot_meta=MetaFile.from_data(version, (metadata / "snapshot.json").read_bytes(), ["sha256"])))
+    timestamp = Metadata(Timestamp(version=timestamp_version, expires=now + timedelta(days=30),
+        snapshot_meta=MetaFile.from_data(snapshot_version, (metadata / "snapshot.json").read_bytes(), ["sha256"])))
     timestamp.sign(signers["timestamp"])
     timestamp.to_file(str(metadata / "timestamp.json"))
     shutil.copyfile(TRUST_ROOT, metadata / "1.root.json")
     shutil.copyfile(TRUST_ROOT, metadata / "root.json")
     print(json.dumps({"repository": str(repository), "metadata_version": version,
                       "platforms": list(target_metadata.signed.targets)}, ensure_ascii=False))
+
+
+def sync_public(repository):
+    """Refresh independent online versions before preparing a new release.
+
+Keep publish() offline/testable; the production CLI must start from the current
+    authenticated public feed, not a mirror last written months earlier.
+    """
+    from renew_feed import get_public, verified_feed, save_metadata
+    from feed_metadata import reject_rollback
+    blobs, roles = verified_feed(get_public)
+    local = repository / "metadata"
+    if (local / "timestamp.json").exists():
+        _, previous = verified_feed(lambda n: (local / n).read_bytes())
+        reject_rollback(roles, previous)
+    save_metadata(local, blobs)
+    return roles
 
 
 if __name__ == "__main__":
@@ -102,4 +129,6 @@ if __name__ == "__main__":
     else:
         if not args.repository:
             parser.error("--repository is required")
+        if (args.repository / "metadata" / "timestamp.json").exists():
+            sync_public(args.repository)
         publish(args.repository, args.archives)

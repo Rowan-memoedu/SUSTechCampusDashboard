@@ -1,0 +1,3 @@
+tuf==7.0.0
+securesystemslib==1.5.1
+cryptography==48.0.1

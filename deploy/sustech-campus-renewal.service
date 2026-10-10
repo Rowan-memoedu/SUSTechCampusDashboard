@@ -1,0 +1,28 @@
+[Unit]
+Description=SUSTech public update metadata renewal and watchdog
+After=network-online.target
+Wants=network-online.target
+OnFailure=sustech-campus-renewal-alert.service
+
+[Service]
+Type=oneshot
+User=campus-renewal
+Group=campus-renewal
+ExecStart=/opt/sustech-campus-renewal/venv/bin/python /opt/sustech-campus-renewal/server_renewal.py
+LoadCredential=online-keys:/etc/sustech-campus-renewal/online-keys.json
+LoadCredential=mail:/etc/sustech-campus-renewal/mail.json
+StateDirectory=sustech-campus-renewal
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/www/sustech-campus-updates/metadata /var/www/sustech-campus-updates/.publish.lock

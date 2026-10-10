@@ -1,0 +1,20 @@
+[Unit]
+Description=Independent startup failure email for SUSTech metadata renewal
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=campus-renewal
+Group=campus-renewal
+ExecStart=/usr/bin/python3 /opt/sustech-campus-renewal/renewal_failure_alert.py
+LoadCredential=mail:/etc/sustech-campus-renewal/mail.json
+StateDirectory=sustech-campus-renewal
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=2min
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/sustech-campus-updates/.publish.lock

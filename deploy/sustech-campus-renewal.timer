@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly watchdog and retry; signing is due every 20 days
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=60
+AccuracySec=1min
+Unit=sustech-campus-renewal.service
+
+[Install]
+WantedBy=timers.target

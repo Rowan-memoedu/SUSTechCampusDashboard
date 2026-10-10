@@ -1,6 +1,6 @@
 # 安装、更新与发布维护
 
-更新：2026-10-08。0.4.0 已发布并完成现有本机迁移与托管退役，提供安装器、本机默认打开与首页更新提醒。证据与独立验收边界见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。保留原 TUF 更新源和信任根；后台每 20 天续签，不依赖 Codex 运行。
+更新：2026-10-10。0.4.0 已发布并完成现有本机迁移与托管退役，提供安装器、本机默认打开与首页更新提醒。证据与独立验收边界见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。保留原 TUF 更新源和信任根；服务器后台每 20 天续签，不依赖发布者电脑或 Codex。
 
 当前运行支持 `SUSTECH_EXECUTION_MODE=local` 或 `personal_server`，未设置时兼容旧 `SUSTECH_CLOUD`。`hosted` 标识仅供历史模块与迁移工具识别，0.4.0 后台入口拒绝启动运营者托管。旧升级与备份证据保留在 [第一阶段记录](docs/HOSTED-PHASE1.md)，不作为重新部署方案。
 
@@ -63,7 +63,7 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 
 ## 维护者发布
 
-密钥仅位于发布者 Windows 用户的 `D:\AppData\SUSTechCampusPublisher\release-keys.dpapi.json`，用 DPAPI 加密，不进入仓库、构建包或服务器。公开信任根为 `src/sustech_dashboard/update-root.json`。必须另行安全备份该 Windows 用户可恢复的发布密钥；丢失后不能伪造原有签名链。
+根密钥和安装包清单（targets）密钥仅位于发布者 Windows 用户的 `D:\AppData\SUSTechCampusPublisher\release-keys.dpapi.json`，用 DPAPI 加密，不进入仓库、构建包或服务器。服务器仅持有 snapshot、timestamp 两把在线密钥，通过 systemd `LoadCredential` 注入专用服务。公开信任根为 `src/sustech_dashboard/update-root.json`，本次不更换信任根或密钥身份。必须另行安全备份该 Windows 用户可恢复的离线发布密钥。
 
 1. 修改源码及 `pyproject.toml`、`__init__.py` 版本号；测试通过后在两个目标系统构建。仓库已经完成首次初始化，本阶段不要再次运行 `deploy/publish_release.py --init`，不得替换现有信任链。
 2. `python deploy/build_client.py --output <产物目录> --work <缓存目录>`。依赖按 requirements-build.txt 安装；源码依赖见 pyproject.toml。Windows 10/11 x64 和 Ubuntu 24.04 x64 已列为当前验收平台，其他 Linux 发行版不能推断兼容。
@@ -72,21 +72,20 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 5. 将该 feed 的公开文件同步到静态 HTTPS `/campus-updates/`；先上传目标文件与带版本号的元数据，最后原子替换 timestamp.json。不要上传发布密钥、账号数据或整个工作区。
 6. 客户端的“检查更新”应显示新版本。先在隔离实例升级并验证数据保持，再更新自己的个人运行端；第二阶段至少覆盖原 0.3.5 到新版的真实升级。源码仓库已公开，源码与可执行包分别维护，均不得混入私人运行材料。
 
-时间戳有效期 30 天；无新版本时可不带安装包重跑发布命令续签，并按上一步发布。过期后客户端会拒绝旧元数据，现有程序仍可运行；新鲜元数据发布后恢复正常检查。根有效期 5 年，更换密钥应通过 TUF 根轮换完成，不能直接替换现有信任根。
+快照、时间戳有效期均为 30 天，由服务器每 20 天续签。安装包清单由本机签发，有效期与当前根元数据一致，至 2031-09-30；在线密钥不能延长它。客户端继续拒绝过期元数据，现有程序仍可运行；新鲜元数据发布后恢复正常检查。根／安装包授权到期前须在本机维护，更换密钥应通过 TUF 根轮换完成。
 
 ### 自动续签
 
-发布者电脑由 Windows 后台每 **20 天**执行一次续签，不依赖 ChatGPT 桌面端中的 Codex、不调用模型。旧 Codex 续签任务已删除。签名密钥仍只在发布者本机的 DPAPI 私密目录；服务器只接收公开签名元数据。
+服务器 `sustech-campus-renewal.timer` 每小时执行看门检查／失败重试，脚本依据持久化的 `next_renewal` 每 **20 天**签发一次 snapshot、timestamp，各延长至运行时起 30 天，不越过离线授权到期日。小时检查不重复签发；服务器恢复后补跑，不依赖发布者电脑、Windows 登录、Codex 或模型。
 
-- 配置入口：`pwsh -NoLogo -NoProfile -File deploy/install-publisher-renewal.ps1`，登记当前发布者用户的 `SUSTechCampusPublisher-Renewal` 后台任务；执行入口为 `deploy/run-publisher-renewal.ps1`。
-- 每 20 天续签到从运行时起 30 天，保留约 10 天余量。发布者电脑须开机、联网且该 Windows 用户已登录；无需保持 Codex 打开。错过时间后补跑，失败后每小时重试，最多 48 次，同一时刻只运行一个实例。不保存 Windows 密码，也不将私钥迁往服务器。
-- 每次后台运行调用 `renew_feed.py --force`。即使刚发布过新版也继续续签，避免跳过一次后下一次运行晚于到期时间。
-- 从公网读取并验证已发布的签名链，检查相对本地镜像的版本回退，再用本机 DPAPI 密钥签名。允许对已过期的非根元数据恢复续签；客户端仍严格拒绝过期元数据。根过期或轮换需要维护者处理。
-- 续签只延长元数据有效期并递增其版本，安装包内容、软件版本及下载地址不变。签名密钥、CAS 凭据和校园数据不上传。
-- 服务器发布持有文件锁并核对旧时间戳、已有包哈希；并发发布冲突直接停止。带版本号的元数据先发布，`timestamp.json` 最后原子切换。公开临时文件保留在服务器 `/tmp/sustech-renew-*` 便于排查，无私密内容。
-- 发布后用客户端 TUF 实现从公网检查两个平台。成功后同步本地发布镜像。若发布成功但回读时断网，下次检查可直接恢复验证，不重复续签。
-- 最近结果：`D:\AppData\SUSTechCampusPublisher\renewal-status.json`。必须同时满足退出码 0、`client_verified: true`；`healthy` 表示无需续签，`renewed` 表示本次已续签，`error` 需要排查。
-- 手动续签使用同一命令；若只想按需检查，可省略 `--force`，此时仅在剩余有效期不超过 14 天时续签。正常功能版本更新仍按上面的构建、测试、签名和发布流程进行。
+- 专用用户 `campus-renewal` 仅能写公开元数据、发布锁和独立状态；安装包与系统配置只读。根／targets 私钥从未上传，在线续签逐字保留本机签发的安装包授权。
+- 与本机版本发布共用文件锁，校验签名、回退、不可变编号文件及包哈希，最后原子切换时间戳。公网双平台 TUF 验证及时间戳内容回读都通过才算成功；回读失败后重试验证，不重复签发。
+- 失败每小时持续重试，不在 48 次后停止。首次失败立即邮件告警，持续失败每天提醒一次，剩余不超过 3 天时额外紧急提醒；恢复成功通知一次。根／targets 到期前 90 天开始每天提醒本机维护。主服务未能启动时由独立的系统 Python／标准库 OnFailure 处理器通知，不依赖 TUF 虚拟环境。
+- 告警复用南科大邮箱现有账户，SMTP TLS 465 发到同一邮箱；凭据只通过验证主机密钥的 SSH 标准输入传输至 root 私密文件，不进入仓库、公开目录或命令行。发送失败保留队列，下次小时检查补发。
+- 最近状态在 `/var/lib/sustech-campus-renewal/status.json`。成功须同时满足服务退出码 0、`client_verified: true`、`pending_alerts: 0`。手动检查／恢复：`sudo systemctl start sustech-campus-renewal.service`。
+- 旧 Windows `SUSTechCampusPublisher-Renewal` 已停用，两个 PowerShell 入口拒绝恢复旧调度；旧 Codex 自动化保持退役。`renew_feed.py` 仅保留本机迁移／恢复能力，不登记周期任务。
+
+部署、日志、权限、版本发布兼容及恢复步骤见 [服务器续签维护](docs/SERVER-RENEWAL.md)。服务器整体离线时无法发送邮件，联网后补跑和补发；本方案不等同外部存活监控。在线密钥泄漏仍可能冻结／阻断更新，须本机轮换，但不能签发新的安装包授权。
 
 元数据有效期与各角色关系见 [TUF 官方说明](https://theupdateframework.io/docs/metadata/)。
 

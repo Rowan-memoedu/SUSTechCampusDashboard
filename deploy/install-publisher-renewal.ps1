@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+throw 'Publisher-PC scheduling has retired. Renewal now runs on the server; see UPDATING.md. Do not reinstall the Windows task.'
 $taskName = 'SUSTechCampusPublisher-Renewal'
 $runner = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'run-publisher-renewal.ps1')).Path
 $pythonPath = (Resolve-Path -LiteralPath $Python).Path
