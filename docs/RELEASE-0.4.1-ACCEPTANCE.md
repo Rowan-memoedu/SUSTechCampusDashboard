@@ -35,4 +35,4 @@
 
 ## 边界
 
-尚未验证另一 Windows 账号／另一台电脑。安装器没有 Authenticode 签名，不能保证所有 Windows 信誉检查直接放行。真实测试只读取校园数据和下载附件，没有测试提交、预约、选退课或打印写入。Memory、RemNote 不更新。
+截至本轮 0.4.1 发布验收，尚未验证另一 Windows 账号／另一台电脑；后续独立 Windows 实测与当前状态见 [0.4.3 验收](RELEASE-0.4.3-ACCEPTANCE.md)。安装器没有 Authenticode 签名，不能保证所有 Windows 信誉检查直接放行。真实测试只读取校园数据和下载附件，没有测试提交、预约、选退课或打印写入。Memory、RemNote 不更新。

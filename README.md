@@ -4,7 +4,7 @@
 
 安装与运行见 [客户端说明](CLIENT-README.md)，更新、签名与维护流程见 [UPDATING.md](UPDATING.md)。源码公开，可 fork 后自行部署；凭据、校园数据、运行数据库和下载文件均不在仓库中。
 
-**0.4.0 已发布，本机迁移与运营者托管退役已完成。**默认在本机浏览器使用，提供 Windows 安装器、受限唤起、首页更新提醒与安装重连；用户自有 Linux 服务器仍受支持。[公共入口](https://124.221.144.155/app/) 仅提供静态发布与帮助。验收证据及首次交互使用的验证边界见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。
+**0.4.3 已发布，本机迁移与运营者托管退役已完成。**默认在本机浏览器使用，提供 Windows 安装器、首页更新提醒与安装重连；用户自有 Linux 服务器仍受支持。[公共入口](https://124.221.144.155/app/) 仅提供静态发布与帮助。当前分发和独立 Windows 验收边界见[0.4.3 验收记录](docs/RELEASE-0.4.3-ACCEPTANCE.md)，历史迁移见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。
 
 完整范围、迁移和服务器资源清理见 [第二阶段总计划](docs/WEB-HOSTED-PLAN.md)，新 Thread 从 [执行交接](docs/LOCAL-MODE-HANDOFF.md) 开始。取消集中托管后保留本地缓存和文件复用，跨用户共享服务退役，见 [复用与下载规则](docs/SHARED-METADATA-AND-DOWNLOADS.md)。
 

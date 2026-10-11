@@ -10,6 +10,7 @@ import winreg
 
 PROTOCOL = r'Software\Classes\sustech-campus'
 OWNER = r'Software\SUSTechCampusDashboard'
+UNINSTALL = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\SUSTechCampusDashboard_is1'
 RUN = r'Software\Microsoft\Windows\CurrentVersion\Run'
 NAME = 'SUSTechCampusDashboard'
 
@@ -58,7 +59,7 @@ def verify(installer, cache):
     data.mkdir()
     retained = data / 'fixture.txt'
     retained.write_bytes(b'personal data remains')
-    before = {path: snapshot(path) for path in (PROTOCOL, OWNER)}
+    before = {path: snapshot(path) for path in (PROTOCOL, OWNER, UNINSTALL)}
     previous_run = registry_value(RUN, NAME)
     shortcut = Path(os.environ['APPDATA']) / 'Microsoft/Windows/Start Menu/Programs/南科大校园面板.lnk'
     shortcut_bytes = shortcut.read_bytes() if shortcut.exists() else None

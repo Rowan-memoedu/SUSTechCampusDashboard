@@ -169,7 +169,7 @@ def backend(port=18765):
         return 75 if runtime.restart else 0
 
 
-def wait_ready(child, port, health_token, version, timeout=60):
+def wait_ready(child, port, health_token, version, timeout=180):
     import requests
     session = requests.Session()
     session.trust_env = False
@@ -191,7 +191,7 @@ def child_command(executable, port):
     return [str(executable), "-m", "sustech_dashboard.client", "--backend", "--port", str(port)]
 
 
-def wait_existing(port, token, timeout=65):
+def wait_existing(port, token, timeout=185):
     """Prove the listener owns our token before handing a browser the fragment."""
     import requests
     challenge = secrets.token_hex(32)

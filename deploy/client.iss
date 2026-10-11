@@ -11,7 +11,7 @@ AppName=南科大校园面板
 AppVersion={#AppVersion}
 AppPublisher=Rowan-memoedu
 AppPublisherURL=https://github.com/Rowan-memoedu/SUSTechCampusDashboard
-DefaultDirName={code:DefaultInstallPath}
+DefaultDirName={localappdata}\Programs\SUSTechCampusDashboard
 DefaultGroupName=南科大校园面板
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -61,14 +61,6 @@ function LaunchAfterInstall: Boolean;
 begin
   { Used by isolated package verification; normal installs launch immediately. }
   Result := ExpandConstant('{param:NOLAUNCH|0}') <> '1';
-end;
-
-function DefaultInstallPath(Param: String): String;
-begin
-  if DirExists('D:\') then
-    Result := ExpandConstant('D:\Applications\{username}\SUSTechCampusDashboard')
-  else
-    Result := ExpandConstant('{localappdata}\Programs\SUSTechCampusDashboard');
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

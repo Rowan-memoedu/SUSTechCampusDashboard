@@ -1,6 +1,6 @@
 # 安装、更新与发布维护
 
-更新：2026-10-10。0.4.0 已发布并完成现有本机迁移与托管退役，提供安装器、本机默认打开与首页更新提醒。证据与独立验收边界见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。保留原 TUF 更新源和信任根；服务器后台每 20 天续签，不依赖发布者电脑或 Codex。
+更新：2026-10-11。0.4.3 已发布，修复 Windows 默认目录选择与已有大型数据目录的启动超时。当前分发与独立 Windows 验收见[0.4.3 验收记录](docs/RELEASE-0.4.3-ACCEPTANCE.md)，历史迁移与托管退役见[阶段记录](docs/LOCAL-MODE-ACCEPTANCE.md)。保留原 TUF 更新源和信任根；服务器后台每 20 天续签，不依赖发布者电脑或 Codex。
 
 当前运行支持 `SUSTECH_EXECUTION_MODE=local` 或 `personal_server`，未设置时兼容旧 `SUSTECH_CLOUD`。`hosted` 标识仅供历史模块与迁移工具识别，0.4.0 后台入口拒绝启动运营者托管。旧升级与备份证据保留在 [第一阶段记录](docs/HOSTED-PHASE1.md)，不作为重新部署方案。
 

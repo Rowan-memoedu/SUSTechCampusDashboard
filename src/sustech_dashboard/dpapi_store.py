@@ -81,14 +81,17 @@ def _crypt(data: bytes, *, protect: bool) -> bytes:
 
 
 def _restrict_directory(path: Path) -> None:
+    from .windows_storage import private_directory_acl
+    if private_directory_acl(path):
+        return
     user = subprocess.check_output(
-        ["whoami", "/user", "/fo", "csv", "/nh"], text=True, encoding="utf-8", timeout=10,
+        ["whoami", "/user", "/fo", "csv", "/nh"], text=True, encoding="utf-8", timeout=120,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
     user_sid = next(csv.reader([user.strip()]))[1]
     subprocess.run(
         ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{user_sid}:(OI)(CI)F"],
-        check=True, capture_output=True, text=True, timeout=10,
+        check=True, capture_output=True, text=True, timeout=120,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
 
