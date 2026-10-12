@@ -1,4 +1,4 @@
-"""Read Windows ownership without credentials, subprocesses, or ACL changes."""
+"""Windows ownership checks and owner-bound private directory protection."""
 import os
 
 
@@ -11,7 +11,12 @@ def private_directory_acl(path):
     return _current_user_security(path, private_acl=True)
 
 
-def _current_user_security(path, *, private_acl=False):
+def restrict_directory_acl(path):
+    """Replace this user's directory DACL; never change a different owner."""
+    return _current_user_security(path, repair_acl=True)
+
+
+def _current_user_security(path, *, private_acl=False, repair_acl=False):
     if os.name != "nt":
         return False
     import ctypes
@@ -63,6 +68,8 @@ def _current_user_security(path, *, private_acl=False):
         user_sid = ctypes.cast(buffer, ctypes.POINTER(pointer))[0]
         if not advapi.EqualSid(owner, user_sid):
             return False
+        if repair_acl:
+            return _set_private_dacl(str(path), user_sid, advapi, kernel)
         if not private_acl:
             return True
         advapi.GetSecurityDescriptorControl.argtypes = [
@@ -93,5 +100,46 @@ def _current_user_security(path, *, private_acl=False):
     finally:
         if token:
             kernel.CloseHandle(token)
+        if descriptor:
+            kernel.LocalFree(descriptor)
+
+
+def _set_private_dacl(path, user_sid, advapi, kernel):
+    """Owner was verified before entry; only DACL/protection flags are written.
+
+    https://learn.microsoft.com/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow
+    """
+    import ctypes
+    from ctypes import wintypes
+    pointer = ctypes.c_void_p
+    advapi.ConvertSidToStringSidW.argtypes = [pointer, ctypes.POINTER(pointer)]
+    advapi.ConvertSidToStringSidW.restype = wintypes.BOOL
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(pointer), pointer]
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+    advapi.GetSecurityDescriptorDacl.argtypes = [
+        pointer, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(pointer), ctypes.POINTER(wintypes.BOOL)]
+    advapi.GetSecurityDescriptorDacl.restype = wintypes.BOOL
+    advapi.SetNamedSecurityInfoW.argtypes = [
+        wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD, pointer, pointer, pointer, pointer]
+    advapi.SetNamedSecurityInfoW.restype = wintypes.DWORD
+    sid_text, descriptor, dacl = pointer(), pointer(), pointer()
+    present, defaulted = wintypes.BOOL(), wintypes.BOOL()
+    try:
+        if not advapi.ConvertSidToStringSidW(user_sid, ctypes.byref(sid_text)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        sddl = 'D:P(A;OICI;FA;;;' + ctypes.wstring_at(sid_text) + ')'
+        if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not advapi.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)) or not present or not dacl:
+            raise RuntimeError('Windows 私密目录权限描述无效')
+        # DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION.
+        error = advapi.SetNamedSecurityInfoW(path, 1, 4 | 0x80000000, None, None, dacl, None)
+        if error:
+            raise ctypes.WinError(error)
+        return True
+    finally:
+        if sid_text:
+            kernel.LocalFree(sid_text)
         if descriptor:
             kernel.LocalFree(descriptor)

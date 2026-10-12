@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import os
 import subprocess
@@ -81,19 +80,13 @@ def _crypt(data: bytes, *, protect: bool) -> bytes:
 
 
 def _restrict_directory(path: Path) -> None:
-    from .windows_storage import private_directory_acl
+    from .windows_storage import private_directory_acl, restrict_directory_acl
     if private_directory_acl(path):
         return
-    user = subprocess.check_output(
-        ["whoami", "/user", "/fo", "csv", "/nh"], text=True, encoding="utf-8", timeout=120,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
-    user_sid = next(csv.reader([user.strip()]))[1]
-    subprocess.run(
-        ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{user_sid}:(OI)(CI)F"],
-        check=True, capture_output=True, text=True, timeout=120,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
+    if not restrict_directory_acl(path):
+        raise RuntimeError('私密目录不属于当前 Windows 用户，未改变权限')
+    if not private_directory_acl(path):
+        raise RuntimeError('Windows 私密目录权限回读未通过')
 
 
 def save_credentials(sid: str, password: str) -> None:

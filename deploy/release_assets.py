@@ -15,6 +15,7 @@ import zipfile
 PRIVATE_NAMES = {
     '.env', 'credentials.dpapi.json', 'credentials.json', 'snapshot.json',
     'cookies.json', 'pairing.json', 'publisher-keys.json', 'local-token',
+    'release-keys.dpapi.json', 'browser-token',
 }
 PRIVATE_DIRS = {'userdata', 'user-data', 'publisher-keys', '.git', '.ssh'}
 

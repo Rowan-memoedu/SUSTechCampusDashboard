@@ -36,3 +36,16 @@ def test_inherited_permissions_are_checked_and_repaired(tmp_path):
     assert not private_directory_acl(folder)
     _restrict_directory(folder)
     assert private_directory_acl(folder)
+
+
+def test_explicit_system_permission_is_removed_without_changing_data(tmp_path):
+    folder = tmp_path / 'explicit permissions'
+    folder.mkdir()
+    retained = folder / 'retained.txt'
+    retained.write_bytes(b'original fixture remains')
+    subprocess.run(['icacls', str(folder), '/grant', '*S-1-5-18:(OI)(CI)F'],
+                   check=True, capture_output=True, timeout=120)
+    assert not private_directory_acl(folder)
+    _restrict_directory(folder)
+    assert private_directory_acl(folder)
+    assert retained.read_bytes() == b'original fixture remains'

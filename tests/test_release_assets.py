@@ -23,7 +23,8 @@ def bundle(path, platform='windows-x86_64', extra=None, version='1.2.3'):
 
 @pytest.mark.parametrize('name', ['../private.txt', '/private.txt', 'C:/private.txt',
                                  'data/snapshot.json', 'data/credentials.dpapi.json',
-                                 '.git/config', '.env.local', 'data/cache.sqlite3'])
+                                 '.git/config', '.env.local', 'data/cache.sqlite3',
+                                 'release-keys.dpapi.json', 'browser-token'])
 def test_rejects_unsafe_and_private_paths(tmp_path, name):
     path = tmp_path / 'client.zip'
     bundle(path, extra=name)
