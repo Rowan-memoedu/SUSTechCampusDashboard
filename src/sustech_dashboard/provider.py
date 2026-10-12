@@ -171,6 +171,7 @@ class Blackboard:
         if cid in cache:
             return cache[cid]
         selected = []
+        restricted = 0
         for col in self.results(f'/learn/api/public/v1/courses/{cid}/gradebook/columns'):
             if col.get('grading', {}).get('type') != 'Attempts' or not col.get('contentId'):
                 continue
@@ -182,12 +183,16 @@ class Blackboard:
             except HTTPError as exc:
                 if exc.response is None or exc.response.status_code not in {403, 404}:
                     raise
+                restricted += 1
                 continue
             if not due and not self.in_current_term(content.get('created')):
                 continue
             selected.append((col, content))
         cache[cid] = selected
         self._assignment_columns = cache
+        restrictions = getattr(self, '_assignment_restrictions', {})
+        restrictions[cid] = restricted
+        self._assignment_restrictions = restrictions
         return selected
 
     def _contents(self, course_id: str, parent_id: str | None = None, folders: tuple = ()):
@@ -258,41 +263,9 @@ class Blackboard:
         finally:
             tmp.unlink(missing_ok=True)
 
-    def assignments(self) -> list[dict[str, Any]]:
-        output: list[dict[str, Any]] = []
-        for course in self.current_courses():
-            cid = course["id"]
-            try:
-                columns = self.current_assignment_columns(cid)
-            except Exception as exc:
-                raise RuntimeError(f"作业列表读取失败 ({type(exc).__name__})") from None
-            from .academic_extras import user_grades, exempt
-            try:
-                own_grades = user_grades(self, cid)
-            except Exception:
-                own_grades = {}
-                self.warnings.append(f'{course["name"]} 的本人列成绩与免交状态暂不可确认')
-            for col, content in columns:
-                due = col.get("grading", {}).get("due")
-                try:
-                    attempts = self.results(
-                        f"/learn/api/public/v1/courses/{cid}/gradebook/columns/{col['id']}/attempts"
-                    )
-                except Exception:
-                    attempts = None
-                output.append({
-                    "course": course["name"], "course_id": cid,
-                    "name": col.get("name") or "未命名作业",
-                    "content_id": col["contentId"],
-                    "column_id": col["id"],
-                    "kind": content.get("contentHandler", {}).get("id"),
-                    "attempts_allowed": col.get("grading", {}).get("attemptsAllowed"),
-                    "due": due or None,
-                    "status": 'exempt' if exempt(own_grades.get(col['id'], {})) else submission_status(attempts),
-                    "attempts": len(attempts) if attempts is not None else None,
-                })
-        output.sort(key=lambda a: (a["due"] is None, a["due"] or "", a["course"]))
-        return output
+    def assignments(self, *, previous=(), previous_scope=None) -> list[dict[str, Any]]:
+        from .coursework import collect
+        return collect(self, previous, previous_scope)
 
 
 def read_tis() -> dict[str, Any]:

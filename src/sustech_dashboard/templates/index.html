@@ -5,7 +5,7 @@
 <section class="wide" id="problems" hidden><h2>同步状态</h2><div id="problem-list"></div></section>
 <section class="wide"><h2>每日概览</h2><div class="grid" id="metrics"></div><div id="classes"></div>
 <details class="fold" id="week-fold"><summary><div class="row-main"><strong>本周课表</strong><div class="row-sub" id="week-range">默认折叠 · 按实际校历显示</div></div></summary><div class="fold-body"><div class="muted">课程名 · 教室 · 节次与具体时间；假期停课，调休课程按原课程日转移。</div><div class="week-scroll" id="week-schedule"></div></div></details></section>
-<section><div class="heading"><h2>Blackboard 作业</h2><span class="pill unknown" id="assignment-count"></span></div><p class="muted">点击小三角查看描述、要求、附件和提交记录；文件只有在点击“提交作业”后才会上传。</p><div id="assignments"></div></section>
+<section><div class="heading"><h2>Blackboard 作业</h2><span class="pill unknown" id="assignment-count"></span></div><p class="muted">点击小三角查看描述、要求、附件和提交记录；文件只有在点击“提交作业”后才会上传。</p><details class="fold" id="assignment-coverage" hidden><summary>各课程作业读取情况</summary><div class="fold-body" id="assignment-coverage-list"></div></details><div id="assignments"></div></section>
 <section><h2>考试与待评教</h2><h3>后续考试</h3><div id="exams"></div><div class="heading"><h3>待评教</h3><a href="{{ api_base }}/explore/evaluations">查看问卷</a></div><div id="evals"></div></section>
 <section class="wide" id="materials-panel"><div class="material-heading"><h2>课程与资料</h2><span id="material-agent" class="pill unknown">正在连接下载代理</span></div>
 <div id="material-root-action"></div>
@@ -23,4 +23,4 @@
 <div class="split"><div><h3>图书馆场地</h3><div id="library-venues" class="venue-catalog"></div></div><div><h3>E-Hall 场地</h3><div id="ehall-venues" class="venue-catalog"></div></div></div>
 <div class="split"><div><h3>我的图书馆预约</h3><div id="library-mine"></div></div><div><h3>我的 E-Hall 预约</h3><div id="ehall-mine"></div></div></div></section>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static',filename='dashboard.js') }}"></script><script src="{{ url_for('static',filename='assignments.js') }}"></script><script src="{{ url_for('static',filename='materials.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='coursework.js') }}"></script><script src="{{ url_for('static',filename='dashboard.js') }}"></script><script src="{{ url_for('static',filename='assignments.js') }}"></script><script src="{{ url_for('static',filename='materials.js') }}"></script>{% endblock %}

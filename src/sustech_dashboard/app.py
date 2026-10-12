@@ -129,29 +129,35 @@ def sync_all() -> dict[str, Any]:
             previous = {}  # Expired permissions must be reacquired, never served stale.
         snapshot: dict[str, Any] = {
             "updated_at": datetime.now(CHINA_TZ).isoformat(),
-            "blackboard_courses": [], "assignments": [], "tis": {}, "bookings": {},
+            "blackboard_courses": [], "assignments": [], "assignment_coverage": [], "tis": {}, "bookings": {},
             "weather": {}, "downloads": {}, "errors": {}, "warnings": [],
             "source_updated_at": dict(previous.get("source_updated_at", {})),
         }
-        for key in ("blackboard_courses", "assignments", "tis", "bookings", "downloads"):
+        for key in ("blackboard_courses", "assignments", "assignment_coverage", "semester_scope", "tis", "bookings", "downloads"):
             if key in previous:
                 snapshot[key] = previous[key]
         try:
             with _bb_lock:
                 bb = Blackboard()
                 courses = bb.current_courses()
-                assignments = bb.assignments()
+                assignments = bb.assignments(previous=previous.get('assignments', []),
+                                             previous_scope=previous.get('semester_scope'))
                 if hosted():
                     from .shared_metadata import configured_client
                     configured_client().call('count', metrics=bb.metrics)
             snapshot["blackboard_courses"] = courses
             snapshot["assignments"] = assignments
+            snapshot["assignment_coverage"] = getattr(bb, 'assignment_coverage', [])
             if getattr(bb, '_scope', None):
                 snapshot['semester_scope'] = {k: str(bb._scope[k]) for k in ('enrollment_start', 'start', 'end')}
             snapshot["source_updated_at"]["blackboard"] = datetime.now(CHINA_TZ).isoformat()
             snapshot["warnings"].extend(bb.warnings)
         except Exception as exc:
             snapshot["errors"]["blackboard"] = _public_error(exc)
+            snapshot['assignments'] = [dict(a, stale=True) for a in snapshot['assignments']]
+            snapshot['assignment_coverage'] = [dict(c, state='failed', received=0,
+                retained=sum(a.get('course_id') == c.get('course_id') for a in snapshot['assignments']),
+                errors=['source_unavailable']) for c in snapshot['assignment_coverage']]
             logging.error("Blackboard sync failed: %s", type(exc).__name__)
             snapshot["warnings"].append("Blackboard 查询失败时保留上次成功数据；请核对各来源的成功同步时间")
         try:
@@ -261,7 +267,7 @@ def create_app(runtime=None) -> Flask:
             from .actions import Actions
             with _bb_lock:result=detail(Blackboard(),cid,iid,request.script_root)
             target=f'assignment:{cid}:{iid}'
-            if result['status']=='submitted':Actions().confirm(target,{'state':'confirmed','status':'submitted'})
+            if result.get('action_status', result['status'])=='submitted':Actions().confirm(target,{'state':'confirmed','status':'submitted'})
             result['operation']=Actions().pending(target)
             return jsonify(result)
         except Exception as exc:return jsonify({'error':_public_error(exc)}),400

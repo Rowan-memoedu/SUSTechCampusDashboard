@@ -116,13 +116,20 @@ def detail(bb,cid,iid,prefix=''):
     if assessment_id:
         try: assessment=bb.json(f'/learn/api/public/v1/courses/{cid}/assessments/{assessment_id}')
         except Exception: warnings.append('该测验的更多信息受 Blackboard 权限限制')
+    from .coursework import deadline, submission, calendar_events
+    from datetime import datetime
+    evidence = submission(history, cid, col['id'])
+    action_status = 'exempt' if is_exempt else submission_status(attempts)
+    if is_exempt: evidence['status'] = 'exempt'
+    dates = deadline(col, cid, calendar_events(bb)[0])
     return {'course':course['name'],'course_id':cid,'content_id':iid,'column_id':col['id'],
-            'name':col.get('name'), 'status':'exempt' if is_exempt else submission_status(attempts),'due':col.get('grading',{}).get('due'),
+            'name':col.get('name'), **evidence, **dates, 'action_status': action_status,
+            'fetched_at':datetime.now(CHINA_TZ).isoformat(), 'stale':False,
             'description_html':safe_html(content.get('body'),prefix),'content':content,'column':col,
             'attempts':history,'assessment':assessment,'official_text':page_text[:30000],
             'review_html':review_html,
             'attachments':[dict(a,key=attachment_key(cid,iid,a['id']),download_url=prefix+'/api/blackboard-resource?path='+quote(f'/learn/api/public/v1/courses/{cid}/contents/{iid}/attachments/{a["id"]}/download',safe='')+'&name='+quote(a.get('fileName') or '附件',safe='')) for a in atts],
-            'can_submit':can_submit and not is_exempt and not content.get('contentHandler',{}).get('groupContent'),
+            'can_submit':can_submit and evidence['status'] in {'not_submitted','draft'} and not is_exempt and not content.get('contentHandler',{}).get('groupContent'),
             'official_url':BB_BASE+f'/webapps/blackboard/execute/displayIndividualContent?course_id={cid}&content_id={iid}',
             'warnings':warnings}
 

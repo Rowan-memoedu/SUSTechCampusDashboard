@@ -32,7 +32,7 @@ def test_failed_blackboard_sync_retains_last_success(monkeypatch, tmp_path):
     monkeypatch.setattr(sustech_survival, "Context", lambda **kwargs: type("Weather", (), {
         "weather_cond": "", "temperature": None, "aqi_value": None})())
     result = module.sync_all()
-    assert result["assignments"] == [{"name": "Assignment"}]
+    assert result["assignments"] == [{"name": "Assignment", "stale": True}]
     assert result["source_updated_at"]["blackboard"] == "2026-09-30T12:00:00+08:00"
     assert "blackboard" in result["errors"]
     assert "secret" not in str(result)
