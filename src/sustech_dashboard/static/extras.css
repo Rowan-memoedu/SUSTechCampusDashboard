@@ -1,0 +1,29 @@
+/* Hallmark · component: campus service extensions · theme: existing campus
+ * pre-emit critique: P4 H4 E4 S4 R5 V3
+ * states: default · hover · focus · disabled · loading · error · success
+ */
+.extra-nav{display:flex;flex-wrap:wrap;gap:10px 20px}
+.extra-nav a{white-space:nowrap;text-decoration:none}
+.extra-nav a[aria-current=page]{font-weight:700;text-decoration:underline;text-underline-offset:5px}
+.extra-nav a:hover{color:var(--ink)}
+#extra-form{margin-bottom:14px}
+#extra-form label{max-width:100%;flex:1 1 160px}
+#extra-form button,.extra-nav a,#extra-pages button,#extra-confirm,#extra-cancel{white-space:nowrap}
+#extra-results .row{flex-wrap:wrap}
+.extra-body{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
+.extra-fields{display:grid;gap:12px;margin:14px 0}
+.extra-fields label{display:grid;gap:5px}
+.extra-fields textarea{min-height:90px}
+.extra-detail-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.extra-summary{display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,3fr);gap:7px 14px}
+.extra-summary dt{color:var(--muted)}.extra-summary dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.course-announcements:empty{display:none}
+.course-announcements{padding:0 14px}
+.course-announcements h3{font-size:14px;margin:12px 0 8px}
+.course-announcements .fold{border-radius:7px}
+.course-announcements .fold>summary{background:var(--card)}
+.course-announcements .announcement-meta{font-size:12px;color:var(--muted);margin:5px 0 10px}
+.course-announcements .rich pre{white-space:pre-wrap}
+.course-announcements a{overflow-wrap:anywhere}
+#extra-detail-panel,#extra-review{scroll-margin-top:16px}
+@media(max-width:550px){.extra-summary{grid-template-columns:minmax(0,1fr)}.extra-summary dd{margin-bottom:6px}.extra-nav{gap:10px 14px}.heading{flex-wrap:wrap}.heading>a{white-space:nowrap}}

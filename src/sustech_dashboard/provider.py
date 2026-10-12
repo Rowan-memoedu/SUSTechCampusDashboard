@@ -266,6 +266,12 @@ class Blackboard:
                 columns = self.current_assignment_columns(cid)
             except Exception as exc:
                 raise RuntimeError(f"作业列表读取失败 ({type(exc).__name__})") from None
+            from .academic_extras import user_grades, exempt
+            try:
+                own_grades = user_grades(self, cid)
+            except Exception:
+                own_grades = {}
+                self.warnings.append(f'{course["name"]} 的本人列成绩与免交状态暂不可确认')
             for col, content in columns:
                 due = col.get("grading", {}).get("due")
                 try:
@@ -282,7 +288,7 @@ class Blackboard:
                     "kind": content.get("contentHandler", {}).get("id"),
                     "attempts_allowed": col.get("grading", {}).get("attemptsAllowed"),
                     "due": due or None,
-                    "status": submission_status(attempts),
+                    "status": 'exempt' if exempt(own_grades.get(col['id'], {})) else submission_status(attempts),
                     "attempts": len(attempts) if attempts is not None else None,
                 })
         output.sort(key=lambda a: (a["due"] is None, a["due"] or "", a["course"]))

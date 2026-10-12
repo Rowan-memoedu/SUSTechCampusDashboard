@@ -77,6 +77,9 @@ def review_files(soup,prefix=''):
 def detail(bb,cid,iid,prefix=''):
     from urllib.parse import quote
     course,col,content,attempts=assignment_record(bb,cid,iid)
+    from .academic_extras import user_grades, exempt
+    try: is_exempt=exempt(user_grades(bb,cid).get(col['id'],{}))
+    except Exception: is_exempt=False
     warnings=[];atts=[];history=[];page_text='';can_submit=False;reviews=[];review_html=''
     kind=content.get('contentHandler',{}).get('id')
     if kind=='resource/x-bb-assignment':
@@ -114,18 +117,20 @@ def detail(bb,cid,iid,prefix=''):
         try: assessment=bb.json(f'/learn/api/public/v1/courses/{cid}/assessments/{assessment_id}')
         except Exception: warnings.append('该测验的更多信息受 Blackboard 权限限制')
     return {'course':course['name'],'course_id':cid,'content_id':iid,'column_id':col['id'],
-            'name':col.get('name'), 'status':submission_status(attempts),'due':col.get('grading',{}).get('due'),
+            'name':col.get('name'), 'status':'exempt' if is_exempt else submission_status(attempts),'due':col.get('grading',{}).get('due'),
             'description_html':safe_html(content.get('body'),prefix),'content':content,'column':col,
             'attempts':history,'assessment':assessment,'official_text':page_text[:30000],
             'review_html':review_html,
             'attachments':[dict(a,key=attachment_key(cid,iid,a['id']),download_url=prefix+'/api/blackboard-resource?path='+quote(f'/learn/api/public/v1/courses/{cid}/contents/{iid}/attachments/{a["id"]}/download',safe='')+'&name='+quote(a.get('fileName') or '附件',safe='')) for a in atts],
-            'can_submit':can_submit and not content.get('contentHandler',{}).get('groupContent'),
+            'can_submit':can_submit and not is_exempt and not content.get('contentHandler',{}).get('groupContent'),
             'official_url':BB_BASE+f'/webapps/blackboard/execute/displayIndividualContent?course_id={cid}&content_id={iid}',
             'warnings':warnings}
 
 
 def submit(bb,cid,iid,files,text='',comments=''):
     _,col,content,before=assignment_record(bb,cid,iid)
+    from .academic_extras import user_grades, exempt
+    if exempt(user_grades(bb,cid).get(col['id'],{})):raise ValueError('该作业已免交，无需提交')
     if submission_status(before) not in {'not_submitted','draft'}:raise ValueError('该作业已提交或状态不能确认；请先核对原页面')
     handler=content.get('contentHandler',{})
     if handler.get('id')!='resource/x-bb-assignment' or handler.get('groupContent'):

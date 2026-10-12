@@ -29,6 +29,7 @@ def main():
                "--specpath", str(args.work), "--collect-all", "sustech_dashboard",
                "--collect-submodules", "sustech_survival", "--collect-data", "sustech_survival",
                "--recursive-copy-metadata", "sustech_survival", "--collect-submodules", "tuf",
+               "--collect-all", "playwright", "--collect-all", "pypdf",
                "--collect-submodules", "securesystemslib", "--collect-data", "certifi",
                "--exclude-module", "sustech_dashboard.monitor_remote", "--exclude-module", "sustech_dashboard.monitor_cli"]
     if os.name == "nt":

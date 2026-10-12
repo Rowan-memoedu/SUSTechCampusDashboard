@@ -604,6 +604,8 @@ def create_app(runtime=None) -> Flask:
 
     from .services_routes import register_services
     register_services(app, local_request, csrf, _public_error)
+    from .extras_routes import register_extras
+    register_extras(app, local_request, csrf, _public_error)
     if runtime is not None:
         from .instance_routes import register_instance
         register_instance(app, runtime, local_request, csrf)

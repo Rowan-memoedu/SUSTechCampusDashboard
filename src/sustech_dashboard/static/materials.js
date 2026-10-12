@@ -57,6 +57,9 @@
       const summary=node('summary'), count=all.filter(i=>saved(i.local_status)).length;
       summary.append(node('strong',course.name),node('span',`${all.length} 个附件 · ${count} 个已保存`,'muted'));
       const bulk=node('button','下载未保存资料','secondary');bulk.disabled=!all.some(i=>!saved(i.local_status))||!!data.hosted&&!agent.online;bulk.onclick=e=>{e.preventDefault();e.stopPropagation();requestDownload({scope:'course',course_id:course.id},bulk);};summary.append(bulk);details.append(summary);
+      const announcementSlot=node('div','','course-announcements');announcementSlot.dataset.course=course.id;
+      details.append(announcementSlot);
+      details.addEventListener('toggle',()=>{if(details.open)window.dispatchEvent(new CustomEvent('campus-course-open',{detail:{id:course.id,slot:announcementSlot}}));});
       const list=node('div','','material-files');
       if(!items.length)empty(list,'该课程暂无当前可访问的附件');
       items.forEach(i=>{

@@ -5,4 +5,5 @@
 <script>const roomCsrf={{ csrf_token|tojson }};const apiBase={{ api_base|tojson }};</script><script src="{{ url_for('static',filename='common.js') }}"></script>
 {% if hosted %}<script src="{{ url_for('static',filename='computer.js') }}"></script>{% endif %}
 <script src="{{ url_for('static',filename='update.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static',filename='extras.css') }}"><script src="{{ url_for('static',filename='extras.js') }}"></script>
 {% block scripts %}{% endblock %}</body></html>

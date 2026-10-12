@@ -1,0 +1,7 @@
+{% extends 'service_base.html' %}
+{% block content %}
+<section class="wide" data-extra="{{ kind }}"><nav class="extra-nav" aria-label="校园服务">{% for key, title in pages.items() %}<a href="{{ api_base }}/explore/{{ key }}" {% if key == kind %}aria-current="page"{% endif %}>{{ title }}</a>{% endfor %}</nav></section>
+<section class="wide"><form id="extra-form" class="toolbar"></form><div id="extra-message" role="status" aria-live="polite"></div><p id="extra-note" class="muted"></p><div id="extra-results"></div><div id="extra-pages" class="actions"></div></section>
+<section class="wide" id="extra-detail-panel" hidden><div class="heading"><h2 id="extra-detail-title">详情</h2><button id="extra-close" type="button" class="secondary">关闭详情</button></div><div id="extra-detail" role="status"></div></section>
+<section class="wide" id="extra-review" hidden><h2>核对本次操作</h2><div id="extra-review-body"></div><div class="actions"><button id="extra-confirm" type="button">确认发送</button><button id="extra-cancel" type="button" class="secondary">返回修改</button></div></section>
+{% endblock %}

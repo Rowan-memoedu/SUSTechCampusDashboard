@@ -21,7 +21,9 @@ class BlackboardFixture:
         if path.endswith('/columns'):return [{'id':'g','contentId':'a','grading':{'type':'Attempts','attemptsAllowed':1},'name':'Homework'}]
         if path.endswith('/attempts'):return [{'id':'attempt','status':'NeedsGrading'}] if self.sent and self.confirm else []
         return []
-    def json(self,path):return {'body':'<p>Submit a PDF.</p>','contentHandler':{'id':self.kind,'groupContent':self.group}}
+    def json(self,path):
+        if path.endswith('/users/me'):return {'id':'me'}
+        return {'body':'<p>Submit a PDF.</p>','contentHandler':{'id':self.kind,'groupContent':self.group}}
     def get(self,path):
         body='<form action="/webapps/assignment/uploadAssignment?action=submit"><input type="hidden" name="nonce" value="fresh"><input type="hidden" name="dispatch" value="save"></form>'
         if self.sent:
