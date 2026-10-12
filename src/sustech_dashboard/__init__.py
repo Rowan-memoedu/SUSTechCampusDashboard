@@ -1,3 +1,3 @@
 """Local SUSTech dashboard. Campus data stays on this computer."""
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
