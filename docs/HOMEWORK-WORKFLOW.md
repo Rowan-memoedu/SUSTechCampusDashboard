@@ -6,6 +6,7 @@
 - 首次启用实时读取 Blackboard 全部当前作业建立基线，不直接采用可能滞后的成功缓存；仅自动接收此后的新作业。已有作业需逐项点击制册；本次大学物理 ch9 是明确指定的例外。
 - 每门课程首次需要两次真实确认：教材/版次/题号，然后生成后的三册。第二次确认后按整门课程自动处理。来源不明确时暂停并收集补充信息；补充后的候选仍需确认。
 - 从课程全部附件、正文、公告及公告附件寻找教师指定教材。只处理课程教师资料，不把学生历史提交交给 AI，不代交作业。
+- Blackboard 只给出书名而未提供原件时，可显式将已有本机 PDF 绑定到该课程。不会扫描个人目录猜测教材；课程绑定保存在私密账本中，AI 仅接触被选中并按哈希核对的暂存副本，原件保留不变。
 - 新任务由现有 Blackboard 同步结果触发，当前同步周期约 30 分钟；不是学校实时推送。
 
 ## 使用与产物
@@ -44,6 +45,7 @@
 - `python deploy/homework_preflight.py --output <private-output> --codex`：真实 Codex 随机文件读取 canary，不接触学校材料。
 - `python deploy/verify_homework_ui.py --output <artifact-dir> --cache <cache-dir>`：独立 Chrome 无界面测试，320/375/414/768/1280 像素，所有学校响应为隔离样例。其点击不构成用户真实确认。
 - `python deploy/homework_local_test.py --course-id <id> --content-id <id> --report <private-report>`：使用同一生产工作流处理指定真实作业，停在下一处人类确认，不自动回答。Windows PowerShell 启动异常时可传 `--cmd-shell` 让该次 Codex 使用 cmd；不改变系统默认 Shell。
+- `python deploy/homework_reference.py --root <instance-root> --course-id <id> --file <original.pdf> --title <book-title> --expected-sha256 <sha256>`：将已核对的本机教材登记为这门课程的补充来源。同一原件按哈希去重，源文件或暂存副本变化时拒绝使用；登记不启动任务，也不代替教材题号和 PDF 确认。
 - `python deploy/verify_homework_live.py --root <instance-root> --job <id> --output <artifact-dir> --stage awaiting_pdf`：只读检查真实安装版第二次确认框，核对下载 PDF 与交付文件逐字节相同；不发送确认。
 
 本次本机测试不代表公开分发或独立 Windows 安装链验收完成。原有 PowerShell 兼容测试超时仍单独记录，不能算通过。

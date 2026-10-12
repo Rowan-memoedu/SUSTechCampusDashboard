@@ -5,6 +5,7 @@ import hashlib
 import html
 import json
 import re
+import shutil
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -20,6 +21,57 @@ def file_sha(path):
         for block in iter(lambda: f.read(1024 * 1024), b''):
             h.update(block)
     return h.hexdigest()
+
+
+def local_reference(path, title=''):
+    """Describe an explicitly selected local PDF; never search personal files."""
+    path = Path(path).resolve(strict=True)
+    if not path.is_file() or path.suffix.lower() != '.pdf' or not 0 < path.stat().st_size <= 512 * 1024 * 1024:
+        raise ValueError('本机教材必须是 512 MB 以内的 PDF 文件')
+    with path.open('rb') as source:
+        if not source.read(8).startswith(b'%PDF-'):
+            raise ValueError('本机教材不是有效的 PDF 文件')
+    sha = file_sha(path)
+    return {'key': 'local-' + sha[:24], 'name': path.name, 'path': str(path),
+            'title': title or path.stem, 'origin': '本机补充教材', 'kind': 'local',
+            'sha256': sha, 'size': path.stat().st_size}
+
+
+def supplement_resources(source, resources, references):
+    for record in references:
+        current = local_reference(record['path'], record['title'])
+        if current['sha256'] != record['sha256'] or current['key'] != record['key']:
+            raise ValueError('本机补充教材已变化，需要重新核对来源')
+        resources[current['key']] = current
+        source['resources'].append({k: current[k] for k in ('key', 'name', 'title', 'origin')})
+    return source, resources
+
+
+def stage_local_reference(resource, root):
+    current = local_reference(resource['path'], resource['title'])
+    if current['sha256'] != resource['sha256'] or current['key'] != resource['key']:
+        raise ValueError('本机补充教材已变化，未暂存')
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / (current['key'] + '-' + safe_name(Path(current['name']).stem)[:150] + '.pdf')
+    receipt = path.with_name(path.name + '.receipt.json')
+    if path.exists():
+        if not receipt.exists() or file_sha(path) != current['sha256']:
+            raise ValueError('已暂存的本机教材发生变化，已保留，请核对来源')
+        saved = json.loads(receipt.read_text(encoding='utf-8'))
+        if (saved.get('key') != current['key'] or saved.get('sha256') != current['sha256']
+                or Path(saved.get('path', '')).resolve() != path.resolve()):
+            raise ValueError('本机教材暂存收据不一致，已保留，请核对来源')
+        return saved
+    part = path.with_name(path.name + '.part')
+    shutil.copyfile(current['path'], part)
+    if file_sha(part) != current['sha256'] or file_sha(current['path']) != current['sha256']:
+        raise ValueError('复制期间本机教材发生变化，未接受候选')
+    part.replace(path)
+    result = {k: current[k] for k in ('key', 'name', 'title', 'sha256', 'size')}
+    result.update(path=str(path), origin=current['origin'])
+    receipt.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    return result
 
 
 def text(html_body):
@@ -73,6 +125,8 @@ def collect(bb, assignment):
 
 
 def download(bb, resource, root):
+    if resource.get('kind') == 'local':
+        return stage_local_reference(resource, root)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     name = safe_name(resource['name'])[:160]

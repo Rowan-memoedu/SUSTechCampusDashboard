@@ -9,7 +9,7 @@ from flask import Flask
 from sustech_dashboard.homework_backend import ApiBackend, confined
 from sustech_dashboard.homework_engine import HomeworkEngine
 from sustech_dashboard.homework_routes import register_homework
-from sustech_dashboard.homework_sources import collect, download, file_sha
+from sustech_dashboard.homework_sources import collect, download, file_sha, local_reference, supplement_resources
 from sustech_dashboard.homework_store import HomeworkStore, digest
 
 
@@ -353,3 +353,56 @@ def test_announcement_without_filename_extension_reuses_verified_original(tmp_pa
     first = download(bb, source, tmp_path)
     assert Path(first['path']).suffix == '.pdf'
     assert download(bb, source, tmp_path) == first and bb.calls == 1
+
+
+def test_local_textbook_is_staged_without_network_or_exposing_original_path(tmp_path):
+    book = tmp_path / 'original.pdf'
+    book.write_bytes(b'%PDF-1.4\nlocal textbook fixture')
+    reference = local_reference(book, 'Fixture textbook')
+    source, resources = supplement_resources({'resources': []}, {}, [reference])
+    assert 'path' not in source['resources'][0] and 'kind' not in source['resources'][0]
+    staged = download(None, resources[reference['key']], tmp_path / 'staged')
+    assert Path(staged['path']) != book
+    assert Path(staged['path']).read_bytes() == book.read_bytes()
+    assert file_sha(book) == reference['sha256']
+    assert download(None, reference, tmp_path / 'staged') == staged
+    book.write_bytes(b'%PDF-1.4\nchanged textbook')
+    with pytest.raises(ValueError, match='变化'):
+        supplement_resources({'resources': []}, {}, [reference])
+    with pytest.raises(ValueError, match='变化'):
+        download(None, reference, tmp_path / 'staged')
+
+
+def test_local_textbook_rejects_non_pdf_and_modified_staged_copy(tmp_path):
+    book = tmp_path / 'original.pdf'
+    book.write_text('not a PDF', encoding='utf-8')
+    with pytest.raises(ValueError):
+        local_reference(book)
+    book.write_bytes(b'%PDF-1.4\ntextbook fixture')
+    reference = local_reference(book)
+    staged = download(None, reference, tmp_path / 'staged')
+    Path(staged['path']).write_bytes(b'%PDF-1.4\nuser changes')
+    with pytest.raises(ValueError, match='已保留'):
+        download(None, reference, tmp_path / 'staged')
+
+
+def test_discovery_uses_only_local_references_bound_to_its_course(tmp_path, monkeypatch):
+    import sustech_dashboard.homework_engine as module
+    runner = engine(tmp_path / 'private')
+    references = []
+    for course in ('c', 'other-course'):
+        book = tmp_path / (course + '.pdf')
+        book.write_bytes(b'%PDF-1.4\n' + course.encode())
+        references.append(local_reference(book, course + ' textbook'))
+        runner.store.set_setting('course_references:' + course, [references[-1]])
+    monkeypatch.setattr(module, 'collect', lambda *args: ({'requirement': '2.1', 'resources': []}, {}))
+    def discover(root, stage, *args):
+        value = json.loads((root / 'input.json').read_text(encoding='utf-8'))
+        assert [r['key'] for r in value['resources']] == [references[0]['key']]
+        return {'resource_keys': [references[0]['key']], 'ids': ['2.1']}
+    monkeypatch.setattr(runner, 'ai', discover)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    runner.discover(job)
+    updated = runner.store.get(job['id'])
+    assert updated['stage'] == 'extract'
+    assert updated['data']['downloads'][0]['sha256'] == references[0]['sha256']

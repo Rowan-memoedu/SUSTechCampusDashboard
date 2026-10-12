@@ -132,6 +132,9 @@ API 后端可用 workspace_file 的 list/read/write/image/pdf_text/pdf_render；
         data = job['data']
         with self.bb_lock:
             source, resources = collect(self.bb_factory(), data['assignment'])
+        from .homework_sources import supplement_resources
+        source, resources = supplement_resources(source, resources,
+            self.store.setting('course_references:' + job['course_id'], []))
         save(root / 'input.json', source)
         save(root / 'course-recipe.json', self.store.course(job['course_id'])['recipe'])
         result = self.ai(root, 'discover', '''读取 input.json 全部课程资源索引、作业正文和相关公告，并参考 course-recipe.json 的已有规则。
