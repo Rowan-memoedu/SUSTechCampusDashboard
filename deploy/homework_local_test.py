@@ -35,8 +35,9 @@ def main():
         settings = runner.settings() | chain
         if args.cmd_shell:
             settings['shell_hint'] = ('PowerShell startup is unavailable on this machine. Every exec_command '
-                'must set shell to C:/Windows/System32/cmd.exe and login=false. Use Python for file operations. '
-                'Do not wrap cmd.exe inside PowerShell.')
+                'must set shell to C:\\Windows\\System32\\cmd.exe (Windows backslashes, never forward slashes) '
+                'and login=false. The cmd argument contains the actual command, without an extra /c. '
+                'Use Python for file operations. Do not wrap cmd.exe inside PowerShell.')
         runner.store.set_setting('runner', settings)
         runner.enable(True)
         job = runner.store.enqueue(match, explicit=True)

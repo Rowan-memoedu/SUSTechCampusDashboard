@@ -230,6 +230,90 @@ def test_graceful_shutdown_requeues_current_stage(tmp_path, monkeypatch):
     assert after['state'] == 'queued' and after['stage'] == 'discover'
 
 
+def test_translation_retry_starts_from_accepted_source_and_archives_failed_candidate(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    data = job['data'] | {'active_phase': 'translation', 'retry_production': True,
+        'source_approved': 'bound', 'plan': {'ids': ['2.1']},
+        'pipeline': {'english': True, 'calculation': True}}
+    job = runner.store.update(job['id'], state='running', stage='produce', data=data)
+    root = runner.workspace(job)
+    (root / 'work').mkdir(parents=True)
+    (root / 'work/答案册-英文.md').write_text('accepted source', encoding='utf-8')
+    (root / 'work/答案册.md').write_text('failed candidate', encoding='utf-8')
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def observe(root, stage, *args, **kwargs):
+        assert stage == 'translation'
+        assert not (root / 'work/答案册.md').exists()
+        assert (root / 'work/答案册-英文.md').read_text(encoding='utf-8') == 'accepted source'
+        assert next((root / 'rejected').glob('*/答案册.md')).read_text(encoding='utf-8') == 'failed candidate'
+        raise RuntimeError('observed before AI call')
+    monkeypatch.setattr(runner, 'ai', observe)
+    with pytest.raises(RuntimeError, match='observed before AI call'):
+        runner.produce(job)
+
+
+@pytest.mark.parametrize('tamper', ['none', 'prose', 'page', 'candidate'])
+@pytest.mark.parametrize('has_previous', [False, True])
+def test_figure_crops_require_readonly_review_and_preserve_originals(tmp_path, monkeypatch, tamper, has_previous):
+    import sustech_dashboard.homework_engine as module
+    runner = engine(tmp_path / 'private')
+    root = tmp_path / 'job'
+    (root / 'work/figures').mkdir(parents=True)
+    (root / 'work/review/source-pages').mkdir(parents=True)
+    (root / 'work/题目.md').write_text('### Problem 2.1\n\n![figure](figures/one.png)', encoding='utf-8')
+    english = root / 'work/答案册-英文.md'
+    english.write_text('accepted English', encoding='utf-8')
+    original = root / 'work/figures/one.png'
+    original.write_bytes(b'previous derived crop')
+    source_page = root / 'work/review/source-pages/one.png'
+    source_page.write_bytes(b'immutable source page')
+    book = root / 'book.pdf'
+    book.write_bytes(b'immutable book')
+    data = {'input': {}, 'plan': {'ids': ['2.1'], 'source_pages': [
+        {'id': '2.1', 'images': ['work/review/source-pages/one.png']}]}, 'downloads': [{'path': str(book)}]}
+    previous = 'work/review/figure-candidates/previous/one.png'
+    if has_previous:
+        (root / previous).parent.mkdir(parents=True)
+        (root / previous).write_bytes(b'previous incomplete candidate')
+        (root / 'work/review/figure-crops.json').write_text(json.dumps({'crops': [{
+            'source': 'work/review/source-pages/one.png', 'target': previous,
+            'original': 'figures/one.png', 'box': [3, 4, 8, 9]}]}), encoding='utf-8')
+        (root / 'work/review/figure-review.json').write_text(json.dumps({
+            'status': 'FAIL', 'findings': ['The upper vertex is cropped.']}), encoding='utf-8')
+    def fake_crop(args, *a, **kw):
+        manifest = json.loads(Path(args[-1]).read_text(encoding='utf-8'))
+        target = root / manifest['crops'][0]['target']
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b'exact deterministic crop')
+    monkeypatch.setattr(module, 'command', fake_crop)
+    def ai(root, stage, instruction, schema, images=()):
+        if stage == 'figure-boxes':
+            if has_previous:
+                context = json.loads((root / 'work/review/figure-input.json').read_text(encoding='utf-8'))
+                assert context['previous']['review']['findings'] == ['The upper vertex is cropped.']
+                assert context['previous']['crops']['crops'][0]['box'] == [3, 4, 8, 9]
+                assert previous in images
+            return {'status': 'ready', 'notes': 'fixture', 'figures': [{'path': 'figures/one.png',
+                'source_page': 'work/review/source-pages/one.png', 'box': [1, 2, 9, 10], 'notes': 'fixture'}]}
+        assert stage == 'figure-review'
+        if tamper == 'prose': english.write_text('changed English', encoding='utf-8')
+        if tamper == 'page': source_page.write_bytes(b'changed source page')
+        if tamper == 'candidate': (root / images[-1]).write_bytes(b'reviewer changed crop')
+        return {'status': 'PASS', 'notes': 'fixture', 'findings': [], 'reviewed_pages': list(images),
+                'problems': [{'id': '2.1'}]}
+    monkeypatch.setattr(runner, 'ai', ai)
+    if tamper != 'none':
+        with pytest.raises(ValueError): runner.prepare_figures(root, data)
+        assert original.read_bytes() == b'previous derived crop'
+    else:
+        runner.prepare_figures(root, data)
+        assert original.read_bytes() == b'exact deterministic crop'
+        assert next((root / 'work/review/figure-originals').glob('*/*.png')).read_bytes() == b'previous derived crop'
+        assert english.read_text(encoding='utf-8') == 'accepted English'
+        assert source_page.read_bytes() == b'immutable source page'
+
+
 def test_initial_enable_uses_fresh_school_list_not_stale_successful_cache(tmp_path):
     old = assignment('cached')
     missed = assignment('published-before-enable')

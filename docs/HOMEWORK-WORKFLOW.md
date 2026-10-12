@@ -16,9 +16,13 @@
 
 独立源题/解答审核直接附上全部来源页图；最终审核直接附上全部成品页图。运行记录保存附图路径和哈希，再核对返回的逐页覆盖清单。
 
+附图先定位原页像素裁切框，由程序直接裁切，再独立对照原页检查。排除误带入的相邻题干与图注，保留原图内自带的批注、手写标记和水印；不重画或擦除。视觉审核未通过时，保留旧候选，把上一轮裁切范围、候选图及审核意见一并送入重试，从原页重新生成附图和 PDF。只有原教材、题面、来源页及已通过的解答均未变化，才保留此前的教材题号确认；派生图片变化及其独立审核另留记录，最终 PDF 仍需首次人工确认。
+
 私密账本及任务原件位于实例数据目录的 `homework/`。当前机器是 `D:/AppData/SUSTechCampusDashboard/homework`。Windows D 盘已有时，默认成品在 `D:/Artifacts/SUSTechCampusDashboard/homework/output`，按课程和题目/作答/答案分类；其他机器使用实例 `homework/output`。可选本地双册副本不包含答案。每次任务另保留完整 ZIP 和交付哈希；不向公众上传。现有同名文件发生变化时另存，保留手写内容。
 
 用户纠正产生新的 attempt；生产阶段重试保留失败候选，保留已通过的前序阶段，只从对应原始输入重新运行失败及依赖阶段。失败不会签收为完成。任务日志留在私密目录 `jobs/<id>/attempt-*/agent-runs` 和 `logs`。
+
+翻译从完整英文稿重新生成，逐题记录专业表达自检，再进行独立双语审核。保留专业动作、属性、数量及比较关系；公式内容、定界符和出现顺序按原稿校验，不能用改写旧译文或忽略审核失败来签收。
 
 ## 本机运行条件与接入
 
@@ -40,5 +44,6 @@
 - `python deploy/homework_preflight.py --output <private-output> --codex`：真实 Codex 随机文件读取 canary，不接触学校材料。
 - `python deploy/verify_homework_ui.py --output <artifact-dir> --cache <cache-dir>`：独立 Chrome 无界面测试，320/375/414/768/1280 像素，所有学校响应为隔离样例。其点击不构成用户真实确认。
 - `python deploy/homework_local_test.py --course-id <id> --content-id <id> --report <private-report>`：使用同一生产工作流处理指定真实作业，停在下一处人类确认，不自动回答。Windows PowerShell 启动异常时可传 `--cmd-shell` 让该次 Codex 使用 cmd；不改变系统默认 Shell。
+- `python deploy/verify_homework_live.py --root <instance-root> --job <id> --output <artifact-dir> --stage awaiting_pdf`：只读检查真实安装版第二次确认框，核对下载 PDF 与交付文件逐字节相同；不发送确认。
 
 本次本机测试不代表公开分发或独立 Windows 安装链验收完成。原有 PowerShell 兼容测试超时仍单独记录，不能算通过。

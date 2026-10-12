@@ -11,6 +11,7 @@ def main():
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--job', required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--stage', choices=('awaiting_source', 'awaiting_pdf'), default='awaiting_source')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     base = 'http://127.0.0.1:18765'
@@ -19,7 +20,7 @@ def main():
             data={'token': (args.root / 'browser-token').read_text()}).status == 200
         status = context.request.get(base + '/api/homework').json()
         job = next(x for x in status['jobs'] if x['id'] == args.job)
-        assert job['state'] == 'awaiting_source' and not job['artifacts']
+        assert job['state'] == args.stage
         page = context.new_page()
         writes, errors = [], []
         page.on('request', lambda req: writes.append(req.url) if req.method not in {'GET', 'HEAD'} else None)
@@ -29,11 +30,24 @@ def main():
         dialog = page.locator('.homework-dialog')
         dialog.wait_for(state='visible')
         assert job['name'] in dialog.inner_text()
-        assert all(value in dialog.locator('.homework-ids').inner_text() for value in job['plan']['ids'])
-        assert dialog.get_by_role('button', name='确认，生成三册').is_enabled()
+        if args.stage == 'awaiting_source':
+            assert not job['artifacts']
+            assert all(value in dialog.locator('.homework-ids').inner_text() for value in job['plan']['ids'])
+            assert dialog.get_by_role('button', name='确认，生成三册').is_enabled()
+        else:
+            assert {x['module'] for x in job['artifacts']} == {'questions', 'writing', 'solutions'}
+            assert dialog.get_by_role('button', name='确认正确，开启自动化').is_enabled()
+            from sustech_dashboard.homework_store import HomeworkStore
+            originals = HomeworkStore(args.root / 'homework').get(args.job)['data']['artifacts']
+            for artifact in originals:
+                link = dialog.locator('a[href$="/file/' + artifact['module'] + '"]')
+                assert link.count() == 1
+                response = context.request.get(base + link.get_attribute('href'))
+                assert response.status == 200 and response.body().startswith(b'%PDF-')
+                assert response.body() == Path(artifact['path']).read_bytes()
         page.screenshot(path=str(args.output / 'live-ch9-confirmation.png'))
         after = context.request.get(base + '/api/homework').json()
-        assert next(x for x in after['jobs'] if x['id'] == args.job)['state'] == 'awaiting_source'
+        assert next(x for x in after['jobs'] if x['id'] == args.job)['state'] == args.stage
         assert not errors and not writes, (errors, writes)
         report = {'installed_ui_visible': True, 'job': job['id'], 'state': job['state'], 'ids': job['plan']['ids'],
                   'book': job['plan']['books'][0]['title'], 'no_confirmation_sent': True, 'page_errors': errors}

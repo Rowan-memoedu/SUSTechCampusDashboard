@@ -31,6 +31,9 @@ PLAN = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']},
     'books': {'type': 'array', 'items': obj({'key': STRING, 'title': STRING, 'edition': STRING, 'evidence': STRING})},
     'source_pages': {'type': 'array', 'items': obj({'id': STRING, 'images': STRINGS})}})
 RESULT = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING})
+FIGURES = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING,
+    'figures': {'type': 'array', 'items': obj({'path': STRING, 'source_page': STRING,
+        'box': {'type': 'array', 'items': {'type': 'integer'}, 'minItems': 4, 'maxItems': 4}, 'notes': STRING})}})
 REVIEW = obj({'status': {'type': 'string', 'enum': ['PASS', 'FAIL']}, 'notes': STRING,
     'findings': STRINGS, 'reviewed_pages': STRINGS,
     'problems': {'type': 'array', 'items': obj({'id': STRING, 'source_notes': STRING,
@@ -87,6 +90,8 @@ class HomeworkEngine:
         root.mkdir(parents=True, exist_ok=True)
         if not (root / 'workflow').exists():
             shutil.copytree(ASSETS, root / 'workflow')
+        if not (root / 'workflow/crop_figures.py').exists():
+            shutil.copyfile(ASSETS / 'crop_figures.py', root / 'workflow/crop_figures.py')
         (root / 'work/review').mkdir(parents=True, exist_ok=True)
         save(root / 'toolchain.json', toolchain(self.settings()))
         save(root / 'feedback.json', job['data'].get('feedback', []))
@@ -131,7 +136,7 @@ API 后端可用 workspace_file 的 list/read/write/image/pdf_text/pdf_render；
         save(root / 'course-recipe.json', self.store.course(job['course_id'])['recipe'])
         result = self.ai(root, 'discover', '''读取 input.json 全部课程资源索引、作业正文和相关公告，并参考 course-recipe.json 的已有规则。
 找出教师本次实际布置的有序题号和最可能的参考书/作业原件，返回对应 resource_keys。
-排除往年试卷、参考答案、建议练习和无关讲义。不要把 Tutorial ch9 等同于本次 ch9 作业。
+排除往年试卷、参考答案、建议练习和无关讲义。不要仅凭名称或章节相同，把习题课讲义等同于教师布置的作业原件。
 课程正文若引用另一份选题表，需要选取该文件。包括公告附件中的教材，不能只看作业附件。
 无需在本阶段求解或生成 PDF。缺题号但可从所选附件恢复时，ids 可空，说明依据；否则写入 uncertainties。
 subject 使用课程本名，不带学期/教师后缀；英文课程保持英文。label 是本次作业名称。''', DISCOVERY)
@@ -192,6 +197,8 @@ books.key 必须来自 sources.json，核读题页后再确认 edition。返回�
                 if image.suffix.lower() != '.png' or not image.is_file():
                     raise ValueError('来源页图不存在')
         data['plan'] = result
+        save(root / 'plan.json', result)
+        self.prepare_figures(root, data)
         data['source_digest'] = self.source_digest(root, data)
         trusted = bool(self.store.course(job['course_id'])['trusted']) and not data.get('force_confirm')
         if trusted:
@@ -219,6 +226,73 @@ books.key 必须来自 sources.json，核读题页后再确认 edition。返回�
             raise ValueError('视觉审核未覆盖全部 PDF 页面')
         return result
 
+    def prepare_figures(self, root, data):
+        """Regenerate derived crops from immutable pages, then review before replacing them."""
+        names = list(dict.fromkeys(re.findall(r'!\[[^\]]*\]\(([^)]+)\)',
+            (root / 'work/题目.md').read_text(encoding='utf-8'))))
+        if not names:
+            return
+        if any(Path(name).suffix.lower() != '.png' for name in names):
+            raise ValueError('教材原图须以 PNG 保存')
+        before = self.source_digest(root, data)
+        prose = {name: file_sha(root / name) for name in ('plan.json', 'input.json', 'sources.json',
+            'work/答案册-英文.md', 'work/答案册.md', 'work/review/independent-review.json',
+            'work/review/translation-review.json', 'work/review/translation/accepted.json') if (root / name).is_file()}
+        pages = sorted({p for x in data['plan']['source_pages'] for p in x['images']})
+        previous = {}
+        previous_images = []
+        for key, filename in (('crops', 'figure-crops.json'), ('review', 'figure-review.json')):
+            path = root / 'work/review' / filename
+            if path.is_file():
+                previous[key] = json.loads(path.read_text(encoding='utf-8'))
+        for item in previous.get('crops', {}).get('crops', []):
+            if item.get('original') in names and item.get('source') in pages and confined(root, item['target']).is_file():
+                previous_images.append(item['target'])
+        save(root / 'work/review/figure-input.json', {'figures': names,
+            'source_pages': data['plan']['source_pages'], 'previous': previous})
+        result = self.ai(root, 'figure-boxes', '''读取 plan.json、work/题目.md 和 work/review/figure-input.json。
+为每一幅题目插图重新定位完整原页上的裁切框。只返回原页 PNG 像素坐标 [left, top, right, bottom]，path 是现有 Markdown 图片路径，source_page 必须来自原页清单。
+实际核读原页并读取 PNG 的真实尺寸；保留完整图形、坐标、箭头、标注和该图图注，留少量空白；排除相邻题干、别的图注以及边缘残字。
+原图内部自带的批注、手写标记或水印属于原件内容，必须保留，不能换来源或抹除。
+若 figure-input.previous 存在，先读取上一轮坐标与独立审核意见，并比对本次附上的旧候选图。已确认完整的框可以沿用；失败项必须针对实际缺失从原页重新定位，不要重新盲猜全部框。
+为新坐标生成临时裁切预览，必须使用 view_image 实际打开并逐张比对原页后再返回；仅运行裁切命令或自报完整不算自检。特别检查图形外围的轴标题、端点、初始位置、连线和图注。
+不能修改现有题面、解答、原件、原页或 work/figures。禁止重画、补造或抹除图内内容；程序将直接从原页按坐标裁切。
+必须覆盖全部 figure-input.figures。若无法以矩形保留完整图且排除无关内容，返回 needs_attention，不猜测或裁掉必要标记。''', FIGURES, pages + previous_images)
+        if result.get('status') != 'ready' or [x['path'] for x in result.get('figures', [])] != names:
+            raise ValueError('原图裁切范围尚未核对完整：' + result.get('notes', ''))
+        stamp = str(time.time_ns())
+        crops = []
+        for index, item in enumerate(result['figures']):
+            if item['source_page'] not in pages or len(item['box']) != 4 or any(type(x) is not int for x in item['box']):
+                raise ValueError('裁切框必须来自本次教材原页')
+            crops.append({'source': item['source_page'], 'target': f'work/review/figure-candidates/{stamp}/{index}.png',
+                          'box': item['box'], 'original': item['path'], 'notes': item['notes']})
+        manifest = root / 'work/review/figure-crops.json'
+        save(manifest, {'crops': crops})
+        command([toolchain(self.settings())['python'], str(root / 'workflow/crop_figures.py'), str(manifest)],
+                root, root / 'logs/figure-crops.log', self.stop, timeout=120)
+        candidates = {x['target']: file_sha(confined(root, x['target'])) for x in crops}
+        self.review(root, 'figure-review', '''逐张比对 work/review/figure-crops.json 中的候选图和对应完整原页。
+只审核插图来源与裁切：每张必须是对应题目的原图；几何、坐标、刻度、箭头、标注、图注齐全且未变形，无相邻题干、别的图注或边缘残字。
+原页本来就有的图内批注、手写标记或水印须原样保留；它们不属于裁切引入的杂字，不得据此判失败、要求擦除或更换来源。
+禁止修改图、题面或解答。无图的题目说明无需插图；problems 仍按 plan.json 的全部题号顺序返回。
+findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出本次附上的所有原页及候选图。''', data['plan']['ids'], pages + list(candidates))
+        if self.source_digest(root, data) != before or any(file_sha(root / n) != sha for n, sha in prose.items()):
+            raise ValueError('附图处理修改了受保护的原件或正文，未接受候选')
+        if any(file_sha(confined(root, n)) != sha for n, sha in candidates.items()):
+            raise ValueError('审核过程中候选图发生变化，未接受候选')
+        originals = {}
+        for index, item in enumerate(crops):
+            target = confined(root / 'work', item['original'])
+            backup = root / f'work/review/figure-originals/{stamp}/{index}.png'
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(target, backup)
+            originals[item['original']] = file_sha(target)
+            shutil.copyfile(confined(root, item['target']), target)
+        save(root / 'work/review/figure-assets.json', {'status': 'PASS', 'source_digest_before': before,
+            'source_digest_after': self.source_digest(root, data), 'original_assets': originals,
+            'candidates': candidates, 'protected_prose': prose, 'crops': crops})
+
     def produce(self, job):
         root = self.setup(job)
         data = job['data']
@@ -236,10 +310,20 @@ books.key 必须来自 sources.json，核读题页后再确认 edition。返回�
             failed = data.get('active_phase', 'english')
             reset = {'english': ('english', 'calculation', 'translation', 'compiled'),
                      'calculation': ('english', 'calculation', 'translation', 'compiled'),
-                     'translation': ('translation', 'compiled'), 'compiled': ('compiled',), 'visual': ()}
+                     'translation': ('translation', 'compiled'), 'compiled': ('compiled',), 'visual': ('compiled',)}
             for stage in reset.get(failed, reset['english']):
                 pipeline.pop(stage, None)
+            if failed == 'translation':
+                # The failed candidate is recoverable in rejected/. Start from
+                # the accepted English source, not incremental edits to it.
+                (work / '答案册.md').unlink(missing_ok=True)
             save(root / 'feedback.json', data.get('feedback', []))
+            if failed == 'visual':
+                # The user's book/question choice remains valid: only derived
+                # crops may change, with immutable originals/prose and separate review.
+                self.prepare_figures(root, data)
+                data['source_digest'] = self.source_digest(root, data)
+                data['source_approved'] = data['source_digest']
             self.store.update(job['id'], data=data)
 
         def checkpoint(stage):
@@ -275,6 +359,11 @@ reviewed_pages 写本次实际看过的所有原页图的工作区相对路径�
             phase('translation')
             result = self.ai(root, 'translation', '''先完整读取 workflow/translation-system.txt 与 workflow/translation-user.txt，并按其独立翻译规则翻译 work/答案册-英文.md。
 输出 work/答案册.md；保留每个英文专业词汇、公式、数字、单位、图片、分问、段落和标签顺序。
+逐分句先从英文原文复制不可变的专业表达，再翻译普通语法骨架；专业动作、属性与数学关系同样需要保留，不能只保留名词。
+从完整英文原稿重新生成，不以旧译文或 feedback 点名的表达作为完整词表。逐项检查所有形容词、副词、实义动词、数量、取值与比较表达，按上下文判定是否专业用法。
+保存 work/review/translation/term-audit.json，逐题记录从本次英文原稿提取的专业表达及其在译文中的原样保留情况；此自检记录不替代独立审核。
+保存前逐句回查原文：大小写、词形与专业表达内部顺序不得改变；也不能把普通连接语法或整句英文一起冻结。
+所有行内公式与独立公式的内容、定界符和出现顺序均须与英文底稿一致，同一句内也不能因中文语序调换；保存后用 Python 抽取数学片段列表并逐项比较。
 ### Problem ID 与 #### Solution 标签保持不变。原题是中文时，最终题面从 work/题目.md 恢复原中文，不回译。
 只进行翻译，不重新求解，不压缩推导，不修改英文底稿。
 保存完整译文，存在真实歧义则返回 needs_attention。''', RESULT)
@@ -283,9 +372,10 @@ reviewed_pages 写本次实际看过的所有原页图的工作区相对路径�
             english = (work / '答案册-英文.md').read_text(encoding='utf-8')
             chinese = (work / '答案册.md').read_text(encoding='utf-8')
             if math_spans(english) != math_spans(chinese):
-                raise ValueError('译文的公式与英文底稿不一致，需要从英文输入重跑翻译')
+                raise ValueError('译文的公式内容或出现顺序与英文底稿不一致；同一句内的行内公式也须保持原顺序，请从英文输入重跑翻译')
             self.review(root, 'translation-review', '''逐段比对 work/答案册-英文.md 与 work/答案册.md，并核对专用翻译规则。
 检查无漏段、无改题、无省略推导，数字、公式、图片、逻辑条件和英文术语保留完整；原中文题面恢复原文。
+每条 findings 必须引用两个文件中实际存在的原文和对应译文，并说明具体差异；先确认被指缺失的表达确实未保留，不能把已有英文表达误报为中文化。
 禁止改写译文。problems 按题号覆盖，每题 translation_notes 写实际核验依据，其他 notes 引用已完成的核验；reviewed_pages 可为空。
 发现问题返回 FAIL。''', ids)
             save(work / 'review/translation/accepted.json', {'status': 'PASS',
@@ -351,6 +441,7 @@ reviewed_pages 必须列出每一张实际查看的 PDF 页图的工作区相对
         save(work / 'review/accepted-solutions.json', accepted)
         records = ['review/sources.json', 'review/accepted-solutions.json', 'review/calculation-review.json',
                    'review/translation/accepted.json', 'review/independent-review.json', 'review/translation-review.json', 'review/final-review.json']
+        records += [name for name in ('review/figure-review.json', 'review/figure-assets.json') if (work / name).is_file()]
         review = {'schema_version': 1, 'directory': 'work', 'reviewer': 'Independent ' + self.settings().get('backend', 'codex') + ' review',
                   'date': datetime.now().date().isoformat(), 'reviewed_ids': hw['ids'], 'findings': [],
                   'markdown': report['markdown'], 'pdf_hashes': {x['file']: x['sha256'] for x in report['pdfs']},
