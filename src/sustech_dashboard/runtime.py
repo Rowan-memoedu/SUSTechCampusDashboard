@@ -73,10 +73,15 @@ class Runtime:
                         fn(self.stop)
                     return
         functions = [_sync_loop, _materials_loop]
+        if hasattr(self, 'homework'):
+            def homework_loop(stop):
+                self.homework.run()
+            functions.append(homework_loop)
         if not CLOUD or os.environ.get("SUSTECH_DOWNLOAD_MODE") == "local":
             functions.append(local_agent)
         for fn in functions:
-            worker = threading.Thread(target=after_login, args=(fn,), daemon=True)
+            worker = threading.Thread(target=after_login, args=(fn,), daemon=True,
+                name='homework-worker' if fn.__name__ == 'homework_loop' else None)
             self.workers.append(worker)
             worker.start()
         self.start_print_agent()
@@ -164,7 +169,7 @@ def backend(port=18765):
             runtime.draining = True
             runtime.stop.set()
             for worker in runtime.workers:
-                worker.join(timeout=5)
+                worker.join(timeout=30 if worker.name == 'homework-worker' else 5)
             server.close()
         return 75 if runtime.restart else 0
 

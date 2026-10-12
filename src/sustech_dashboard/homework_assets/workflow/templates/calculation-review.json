@@ -1,0 +1,9 @@
+{
+  "status": "PENDING",
+  "method": "",
+  "checks": [
+    {"id": "REPLACE_WITH_VERIFIED_ID", "check": "", "left": "", "right": "", "status": "PENDING"}
+  ],
+  "proof_reviews": {},
+  "count": 0
+}

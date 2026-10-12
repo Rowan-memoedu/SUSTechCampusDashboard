@@ -1,0 +1,17 @@
+{
+  "id": "REPLACE_WITH_VERIFIED_ID",
+  "producer": "Codex original-image adjudication",
+  "reviewer": "",
+  "date": "",
+  "image_count": 0,
+  "input": {
+    "input": "REPLACE_WITH_EXACT_###_Problem_HEADING_AND_FROZEN_QUESTION",
+    "images": []
+  },
+  "prior_rejections": [
+    {"path": "REPLACE_WITH_UNEDITED_FAILED_RESPONSE_PATH", "sha256": ""}
+  ],
+  "source_image_hashes": {},
+  "basis": "",
+  "output": "{\"status\":\"unresolved\",\"checked_ids\":[],\"discrepancies\":[],\"reason\":\"Actual image adjudication has not been performed\"}"
+}

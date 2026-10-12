@@ -23,4 +23,4 @@
 <div class="split"><div><h3>图书馆场地</h3><div id="library-venues" class="venue-catalog"></div></div><div><h3>E-Hall 场地</h3><div id="ehall-venues" class="venue-catalog"></div></div></div>
 <div class="split"><div><h3>我的图书馆预约</h3><div id="library-mine"></div></div><div><h3>我的 E-Hall 预约</h3><div id="ehall-mine"></div></div></div></section>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static',filename='coursework.js') }}"></script><script src="{{ url_for('static',filename='dashboard.js') }}"></script><script src="{{ url_for('static',filename='assignments.js') }}"></script><script src="{{ url_for('static',filename='materials.js') }}"></script>{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{{ url_for('static',filename='homework.css') }}"><script src="{{ url_for('static',filename='coursework.js') }}"></script><script src="{{ url_for('static',filename='dashboard.js') }}"></script><script src="{{ url_for('static',filename='assignments.js') }}"></script><script src="{{ url_for('static',filename='materials.js') }}"></script><script src="{{ url_for('static',filename='homework.js') }}"></script>{% endblock %}

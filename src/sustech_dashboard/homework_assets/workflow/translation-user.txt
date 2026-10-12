@@ -1,0 +1,3 @@
+Apply the system's partial-translation rules to the source below. Keep EVERY domain expression in its exact original English form, including technical verbs, adjectives and logical expressions; convert only ordinary scaffolding to Chinese.
+
+{{text}}

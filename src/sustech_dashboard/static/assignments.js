@@ -21,6 +21,7 @@
   if(data.can_submit&&!data.operation)submission(root,entry,data);
   root.append(rawDetails('更多官方可见信息',{content:data.content,column:data.column,attempts:data.attempts,assessment:data.assessment}),rawDetails('Blackboard 页面可读内容',data.official_text||'暂无更多页面文本'));
   const controls=node('div','','actions'),original=link('打开 Blackboard 原页面',data.official_url,'button secondary');original.target='_blank';original.rel='noopener';controls.append(button('核对最新状态',()=>load(entry),'secondary'),original);root.append(controls);
+   window.dispatchEvent(new CustomEvent('campus-assignment-open',{detail:{slot:root,assignment:entry.a}}));
  }
  function submission(root,entry,data){
   root.append(node('h3','提交作业'));const zone=node('div','拖拽文件到这里，或点击选择文件','dropzone');zone.tabIndex=0;zone.setAttribute('role','button');zone.setAttribute('aria-label','选择作业文件');const picker=node('input');picker.type='file';picker.multiple=true;zone.append(picker);const list=node('div'),text=node('textarea'),comments=node('textarea'),info=node('div'),footer=node('div','','submission-footer');text.placeholder='作业正文（可选）';comments.placeholder='提交注释（可选）';let files=[];

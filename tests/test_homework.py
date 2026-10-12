@@ -1,0 +1,271 @@
+import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import pytest
+from flask import Flask
+
+from sustech_dashboard.homework_backend import ApiBackend, confined
+from sustech_dashboard.homework_engine import HomeworkEngine
+from sustech_dashboard.homework_routes import register_homework
+from sustech_dashboard.homework_sources import collect, download, file_sha
+from sustech_dashboard.homework_store import HomeworkStore, digest
+
+
+def assignment(id='a', course='c'):
+    return {'course_id': course, 'content_id': id, 'course': 'Fixture Course', 'name': 'Ch 2',
+            'status': 'not_submitted', 'due': None}
+
+
+def snapshot(*items):
+    return {'assignments': list(items), 'source_updated_at': {'blackboard': '2026-10-12T00:00:00+08:00'}, 'errors': {}}
+
+
+def test_baseline_excludes_existing_but_explicit_canary_and_future_are_processed(tmp_path):
+    store = HomeworkStore(tmp_path)
+    old, canary, future = assignment('old'), assignment('canary'), assignment('future')
+    store.enable(True, snapshot(old, canary))
+    store.ingest(snapshot(old, canary))
+    assert not store.list()
+    first = store.enqueue(canary, explicit=True)
+    store.ingest(snapshot(old, canary, future))
+    store.ingest(snapshot(old, canary, future))
+    assert len(store.list()) == 2
+    assert store.enqueue(canary, explicit=True)['id'] == first['id']
+    assert not store.course('c')['trusted']
+
+
+def test_failed_first_sync_cannot_create_baseline(tmp_path):
+    store = HomeworkStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.enable(True, {'assignments': [assignment()]})
+    assert not store.setting('enabled')
+
+
+def test_concurrent_enqueues_and_claims_are_idempotent(tmp_path):
+    store = HomeworkStore(tmp_path)
+    with ThreadPoolExecutor(4) as pool:
+        ids = list(pool.map(lambda _: store.enqueue(assignment(), explicit=True)['id'], range(8)))
+    assert len(set(ids)) == 1
+    with ThreadPoolExecutor(4) as pool:
+        claimed = list(pool.map(lambda _: store.claim(), range(4)))
+    assert len([x for x in claimed if x]) == 1
+    HomeworkStore(tmp_path).recover()
+    assert store.get(ids[0])['state'] == 'queued'
+
+
+def test_two_confirmations_and_stale_click_guard(tmp_path):
+    store = HomeworkStore(tmp_path)
+    job = store.enqueue(assignment(), explicit=True)
+    data = job['data'] | {'source_digest': 'bound', 'plan': {'ids': ['2.1']}}
+    job = store.update(job['id'], state='awaiting_source', stage='produce', data=data)
+    stale = job['revision']
+    job = store.decide(job['id'], job['revision'], 'accept_source', homework_copies=True)
+    assert not store.course('c')['trusted']
+    with pytest.raises(ValueError, match='变化'):
+        store.decide(job['id'], stale, 'accept_source')
+    data = job['data'] | {'artifacts': [{'module': 'questions'}]}
+    job = store.update(job['id'], state='awaiting_pdf', data=data)
+    job = store.decide(job['id'], job['revision'], 'accept_pdf')
+    assert job['state'] == 'complete' and store.course('c')['trusted']
+    assert store.course('c')['recipe']['homework_copies'] is True
+    assert not store.course('another')['trusted']
+
+
+def test_rejection_preserves_old_attempt_and_resets_pipeline(tmp_path):
+    store = HomeworkStore(tmp_path)
+    job = store.enqueue(assignment(), explicit=True)
+    data = job['data'] | {'pipeline': {'english': True}, 'downloads': ['immutable'], 'artifacts': ['old']}
+    job = store.update(job['id'], state='awaiting_pdf', data=data)
+    with pytest.raises(ValueError):
+        store.decide(job['id'], job['revision'], 'reject_pdf')
+    job = store.decide(job['id'], job['revision'], 'reject_pdf', '题目原图缺少一部分')
+    assert job['data']['attempt'] == 1 and 'pipeline' not in job['data']
+    assert job['stage'] == 'extract' and not store.course('c')['trusted']
+
+
+def test_api_file_tool_confines_paths_and_protects_sources(tmp_path):
+    api = ApiBackend()
+    with pytest.raises(ValueError):
+        api.file_tool(tmp_path, {'action': 'read', 'path': '../private.txt'})
+    with pytest.raises(ValueError):
+        api.file_tool(tmp_path, {'action': 'write', 'path': 'workflow/verify.py', 'text': 'pass'})
+    with pytest.raises(ValueError):
+        api.file_tool(tmp_path, {'action': 'write', 'path': 'work/../workflow/verify.py', 'text': 'pass'})
+    api.file_tool(tmp_path, {'action': 'write', 'path': 'work/draft.md', 'text': 'candidate'})
+    assert api.file_tool(tmp_path, {'action': 'read', 'path': 'work/draft.md'})[0]['text'] == 'candidate'
+
+
+def engine(tmp_path, rows=None):
+    class BB:
+        def json(self, path):
+            return {'body': '<p>Chapter 2 problem 1.</p>'}
+    return HomeworkEngine(tmp_path, lambda: snapshot(*(rows or [])), BB, threading.Lock())
+
+
+def test_routes_have_write_guard_and_hide_workspace_paths(tmp_path):
+    app = Flask(__name__)
+    runner = engine(tmp_path, [assignment()])
+    from flask import request
+    def guard(write=False):
+        if write and request.headers.get('X-CSRF-Token') != 'fixture':
+            raise ValueError('页面令牌无效')
+    register_homework(app, runner, guard, lambda _: 'query failed')
+    client = app.test_client()
+    assert client.post('/api/homework/enqueue', json=assignment()).status_code == 400
+    one = client.post('/api/homework/enqueue', json=assignment(), headers={'X-CSRF-Token': 'fixture'}).json
+    two = client.post('/api/homework/enqueue', json=assignment(), headers={'X-CSRF-Token': 'fixture'}).json
+    assert one['id'] == two['id'] and 'data' not in one
+    assert client.get('/api/homework/no-such/file/questions').status_code == 404
+    assert client.get('/api/homework/' + one['id'] + '/file/english').status_code == 404
+
+
+def test_deliver_never_overwrites_written_pdf(tmp_path):
+    runner = engine(tmp_path / 'private')
+    runner.store.set_setting('output_root', str(tmp_path / 'output'))
+    work = tmp_path / 'candidate'
+    (work / 'work').mkdir(parents=True)
+    for name in ('题目.md', '答案册-英文.md', '答案册.md'):
+        (work / 'work' / name).write_text('fixture', encoding='utf-8')
+    source = work / 'q.pdf'
+    source.write_bytes(b'new verified fixture bytes')
+    original = tmp_path / 'output/Course/题目/Course_HW_题目册.pdf'
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b'user handwriting')
+    job = {'id': 'a' * 32, 'data': {}}
+    report = {'pdfs': [{'module': 'questions', 'verified_source': str(source),
+                       'file': original.name, 'pages': 1, 'sha256': file_sha(source)}]}
+    results = runner.deliver(work, job, {'subject': 'Course', 'label': 'HW'}, report)
+    assert original.read_bytes() == b'user handwriting'
+    assert results[0]['path'] != str(original)
+    assert Path(results[0]['path']).read_bytes() == source.read_bytes()
+
+
+def test_source_collection_includes_announcement_attachment_and_excludes_student_history(monkeypatch):
+    from sustech_dashboard import academic_extras
+    monkeypatch.setattr(academic_extras, 'announcements', lambda *args: {'items': [{
+        'title': 'Reference book', 'body_html': '<a href="/api/blackboard-resource?path=%2Fbbcswebdav%2Fbook.pdf">Book</a>'}]})
+    class BB:
+        def current_courses(self): return [{'id': 'c'}]
+        def json(self, path): return {'body': '<p>2.1, 2.4</p>', 'studentComments': 'private'}
+        def attachments(self, cid): return []
+        def _contents(self, cid): return []
+    data, files = collect(BB(), assignment())
+    assert len(files) == 1 and data['resources'][0]['origin'] == '公告'
+    assert data['requirement'] == '2.1, 2.4'
+    assert 'private' not in json.dumps(data) and 'path' not in data['resources'][0]
+
+
+def test_frozen_source_digest_includes_original_question_figures(tmp_path):
+    runner = engine(tmp_path / 'private')
+    root = tmp_path / 'job'
+    (root / 'work/figures').mkdir(parents=True)
+    (root / 'work/题目.md').write_text('### Problem 2.1\n\n![figure](figures/figure.png)', encoding='utf-8')
+    original = root / 'book.pdf'
+    original.write_bytes(b'original textbook')
+    figure = root / 'work/figures/figure.png'
+    figure.write_bytes(b'original figure')
+    data = {'input': {'requirement': '2.1'}, 'plan': {'source_pages': []}, 'downloads': [{'path': str(original)}]}
+    approved = runner.source_digest(root, data)
+    figure.write_bytes(b'changed figure')
+    assert approved != runner.source_digest(root, data)
+
+
+def test_trusted_course_auto_processes_new_job_but_never_auto_approves_correction(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    first = runner.store.enqueue(assignment('first'), explicit=True)
+    first = runner.store.update(first['id'], state='awaiting_pdf', data=first['data'] | {
+        'plan': {'ids': ['2.1']}, 'artifacts': [{'module': 'questions'}]})
+    runner.store.decide(first['id'], first['revision'], 'accept_pdf')
+    assert runner.store.course('c')['trusted']
+    later = runner.store.enqueue(assignment('later'), explicit=True)
+    later = runner.store.update(later['id'], state='awaiting_source', stage='produce',
+        data=later['data'] | {'source_digest': 'frozen'})
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'frozen')
+    produced = []
+    monkeypatch.setattr(runner, 'produce', lambda job: produced.append(job['id']))
+    assert runner.step() and produced == [later['id']]
+    later = runner.store.update(later['id'], state='needs_attention', error='reference needs correction')
+    later = runner.store.decide(later['id'], later['revision'], 'correct_source', 'Use revised textbook')
+    later = runner.store.update(later['id'], state='awaiting_source', stage='produce')
+    assert not runner.step()
+    assert runner.store.get(later['id'])['state'] == 'awaiting_source'
+
+
+def test_changed_teacher_requirement_cannot_be_accepted(tmp_path):
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], state='awaiting_source', data=job['data'] | {
+        'source_digest': 'frozen', 'requirement_digest': digest('old teacher requirement')})
+    runner.source_digest = lambda *args: 'frozen'
+    app = Flask(__name__)
+    register_homework(app, runner, lambda **kw: None, lambda _: 'failed')
+    result = app.test_client().post('/api/homework/' + job['id'] + '/decision', json={
+        'revision': job['revision'], 'action': 'accept_source'})
+    assert result.status_code == 400 and '修改作业要求' in result.json['error']
+    assert runner.store.get(job['id'])['state'] == 'awaiting_source'
+
+
+def test_retry_records_failure_and_restarts_only_production_stage(tmp_path):
+    store = HomeworkStore(tmp_path)
+    job = store.enqueue(assignment(), explicit=True)
+    job = store.update(job['id'], state='failed', stage='produce', error='translation omitted a paragraph',
+        data=job['data'] | {'active_phase': 'translation', 'pipeline': {'english': True, 'calculation': True}})
+    retried = store.decide(job['id'], job['revision'], 'retry')
+    assert retried['data']['retry_production'] is True
+    assert retried['data']['pipeline'] == {'english': True, 'calculation': True}
+    assert retried['data']['feedback'][-1]['text'] == 'translation omitted a paragraph'
+
+
+def test_graceful_shutdown_requeues_current_stage(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    def interrupted(job):
+        runner.stop.set()
+        raise RuntimeError('cancelled child')
+    monkeypatch.setattr(runner, 'discover', interrupted)
+    assert runner.step()
+    after = runner.store.get(job['id'])
+    assert after['state'] == 'queued' and after['stage'] == 'discover'
+
+
+def test_initial_enable_uses_fresh_school_list_not_stale_successful_cache(tmp_path):
+    old = assignment('cached')
+    missed = assignment('published-before-enable')
+    class BB:
+        unclassified = 0
+        def assignments(self): return [old, missed]
+    runner = HomeworkEngine(tmp_path, lambda: snapshot(old), BB, threading.Lock())
+    runner.enable(True)
+    runner.store.ingest(snapshot(old, missed))
+    assert not runner.store.list()
+    runner.store.ingest(snapshot(old, missed, assignment('new-after-enable')))
+    assert len(runner.store.list()) == 1
+
+
+def test_a_baselined_record_can_only_be_reopened_explicitly(tmp_path):
+    store = HomeworkStore(tmp_path)
+    first = store.enqueue(assignment(), explicit=True)
+    store.update(first['id'], state='baseline')
+    assert store.enqueue(assignment())['state'] == 'baseline'
+    reopened = store.enqueue(assignment(), explicit=True)
+    assert reopened['state'] == 'queued' and reopened['stage'] == 'discover'
+    assert reopened['id'] == first['id'] and reopened['data']['attempt'] == 1
+
+
+def test_announcement_without_filename_extension_reuses_verified_original(tmp_path):
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def iter_content(self, *args): yield b'%PDF-1.4\nfixture source'
+    class BB:
+        calls = 0
+        def get(self, *args, **kw):
+            self.calls += 1
+            return Response()
+    bb = BB()
+    source = {'name': 'Reference book', 'key': 'key', 'title': 'Announcement', 'path': '/bbcswebdav/book'}
+    first = download(bb, source, tmp_path)
+    assert Path(first['path']).suffix == '.pdf'
+    assert download(bb, source, tmp_path) == first and bb.calls == 1

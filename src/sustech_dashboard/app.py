@@ -612,6 +612,14 @@ def create_app(runtime=None) -> Flask:
     register_services(app, local_request, csrf, _public_error)
     from .extras_routes import register_extras
     register_extras(app, local_request, csrf, _public_error)
+    from .homework_engine import HomeworkEngine
+    from .homework_routes import register_homework
+    homework = HomeworkEngine(DATA_ROOT / 'homework', lambda: load_json(SNAPSHOT_PATH, {}),
+                              Blackboard, _bb_lock, runtime.stop if runtime is not None else None)
+    app.extensions['homework'] = homework
+    register_homework(app, homework, local_request, _public_error)
+    if runtime is not None:
+        runtime.homework = homework
     if runtime is not None:
         from .instance_routes import register_instance
         register_instance(app, runtime, local_request, csrf)

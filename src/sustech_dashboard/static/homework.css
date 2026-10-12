@@ -1,0 +1,23 @@
+/* Hallmark · component: homework review · genre: modern-minimal · theme: existing campus
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * pre-emit critique: P4 H4 E4 S5 R5 V3
+ */
+.homework-panel{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.homework-panel>summary{cursor:pointer;color:var(--blue);font-weight:600;overflow-wrap:anywhere}
+.homework-settings{display:flex;align-items:flex-start;gap:8px;margin:12px 0;font-size:13px}
+.homework-settings input{flex:none;margin-top:5px}
+.homework-task{padding:12px 0;border-bottom:1px solid var(--line);min-width:0}
+.homework-task:last-child{border:0}.homework-task p{margin:5px 0}
+.homework-task .actions{margin-top:8px}
+.homework-actions{margin:12px 0;padding:10px 0;border-top:1px solid var(--line)}
+.homework-panel button,.homework-dialog button,.homework-actions button,.homework-dialog .button{white-space:nowrap;max-width:100%;transition:opacity .12s,transform .12s}
+.homework-panel button:hover,.homework-dialog button:hover,.homework-actions button:hover{filter:brightness(.94)}
+.homework-panel button:active,.homework-dialog button:active,.homework-actions button:active{transform:translateY(1px)}
+.homework-panel button:focus-visible,.homework-dialog button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+.homework-dialog{width:min(720px,calc(100vw - 24px));max-height:calc(100dvh - 36px);overflow:auto;padding:22px;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);color:var(--ink)}
+.homework-dialog::backdrop{background:color-mix(in srgb,var(--ink) 40%,transparent)}
+.homework-dialog h2,.homework-dialog h3{font-style:normal;overflow-wrap:anywhere;min-width:0}
+.homework-dialog .actions{margin-top:14px}.homework-dialog textarea{margin:8px 0;min-height:76px}
+.homework-dialog [data-loading=true]{opacity:.65;cursor:wait}.homework-evidence{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;max-height:200px;overflow:auto;background:var(--bg);padding:10px;border-radius:7px}
+.homework-ids{overflow-wrap:anywhere;line-height:1.8}.homework-error{color:var(--bad)}.homework-success{color:var(--blue)}
+@media(max-width:414px){.homework-dialog{padding:16px}.homework-dialog .actions{align-items:stretch}.homework-dialog .actions button{font-size:12px;padding:8px 10px}}

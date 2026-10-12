@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "directory": "REPLACE_WITH_REGISTERED_DIRECTORY",
+  "reviewer": "",
+  "date": "",
+  "reviewed_ids": [],
+  "findings": [],
+  "source": {"status": "PENDING", "notes": ""},
+  "solution": {"status": "PENDING", "notes": ""},
+  "translation": {"status": "PENDING", "notes": ""},
+  "visual": {"status": "PENDING", "notes": ""},
+  "markdown": {},
+  "pdf_hashes": {},
+  "evidence_hashes": {},
+  "rendered_page_hashes": {}
+}
