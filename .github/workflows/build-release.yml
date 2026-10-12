@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      prerelease:
+        description: Mark downloads as a preview release (recommended until interactive Windows acceptance)
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -152,5 +157,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
+          PREVIEW_RELEASE: ${{ inputs.prerelease }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag --generate-notes --latest=false release-assets/dist/windows-x86_64.zip release-assets/dist/linux-x86_64.zip "release-assets/dist/SUSTechCampusDashboard-${RELEASE_TAG#v}-windows-x86_64-setup.exe" release-assets/dist/release-manifest.json release-assets/dist/SHA256SUMS
+          args=(--verify-tag --generate-notes --latest=false)
+          if [ "$PREVIEW_RELEASE" = "true" ]; then args+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" "${args[@]}" release-assets/dist/windows-x86_64.zip release-assets/dist/linux-x86_64.zip "release-assets/dist/SUSTechCampusDashboard-${RELEASE_TAG#v}-windows-x86_64-setup.exe" release-assets/dist/release-manifest.json release-assets/dist/SHA256SUMS
