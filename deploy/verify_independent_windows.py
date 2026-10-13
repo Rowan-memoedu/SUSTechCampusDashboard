@@ -22,6 +22,19 @@ import requests
 RPC_PORT,WEB_PORT,QMP_PORT=19676,19675,19678
 
 
+def wait_browser(ps, present, timeout=180):
+    """Browser launch/exit follows the backend asynchronously on a cold desktop."""
+    from release import emit
+    deadline=time.monotonic()+timeout
+    while True:
+        found=json.loads(ps('[bool](Get-Process chrome,msedge,iexplore -ErrorAction SilentlyContinue)|ConvertTo-Json -Compress'))
+        if found is present:return
+        if time.monotonic()>=deadline:
+            raise ValueError('Normal installer did not open the browser' if present else 'Previous test browser did not close')
+        emit('independent_windows',state='waiting_for_browser_launch' if present else 'waiting_for_browser_exit')
+        time.sleep(3)
+
+
 def qmp(message):
     with socket.create_connection(('127.0.0.1',QMP_PORT),timeout=10) as sock:
         sock.settimeout(15);stream=sock.makefile('r');stream.readline()
@@ -128,6 +141,9 @@ def verify(directory, assets, manifest, phase, output):
     initial=proof();stop()
     version=manifest['version'];record=next(a for a in manifest['assets'] if a['filename']=='windows-x86_64.zip')
     if phase=='candidate':
+        # A browser left by an earlier attempt must not satisfy this installation's check.
+        ps('Get-Process chrome,msedge,iexplore -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowHandle -ne 0} | ForEach-Object {$null=$_.CloseMainWindow()}')
+        wait_browser(ps,False)
         installer=next(a for a in manifest['assets'] if a['filename'].endswith('.exe'))
         class Files(http.server.SimpleHTTPRequestHandler):
             def log_message(self,*_):pass
@@ -146,8 +162,7 @@ def verify(directory, assets, manifest, phase, output):
         finally:server.shutdown();server.server_close()
         emit('independent_windows',state='checking_running_candidate',phase=phase)
         current=ready(version)
-        if not json.loads(ps('[bool](Get-Process chrome,msedge,iexplore -ErrorAction SilentlyContinue)|ConvertTo-Json -Compress')):
-            raise ValueError('Normal installer did not open the browser')
+        wait_browser(ps,True)
     else:
         state=json.loads((output/'state.json').read_text(encoding='utf-8'))
         prior=state['previous']['windows-x86_64.zip']

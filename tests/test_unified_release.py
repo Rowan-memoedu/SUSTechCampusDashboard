@@ -59,3 +59,17 @@ def test_retention_compares_preexisting_data_without_rejecting_new_downloads():
     assert preserved(before,after)
     assert not preserved(before,dict(after,files={'one':'different'}))
     assert not preserved(before,dict(after,actions={'action':'confirmed'}))
+
+
+def test_browser_acceptance_waits_for_async_launch_and_rejects_missing_browser(monkeypatch):
+    import verify_independent_windows as guest
+    now=[0]
+    monkeypatch.setattr(guest.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(guest.time,'sleep',lambda delay:now.__setitem__(0,now[0]+delay))
+    replies=iter(['false','false','true'])
+    guest.wait_browser(lambda _:next(replies),True,timeout=10)
+    assert now[0]==6
+    with pytest.raises(ValueError,match='did not open'):
+        guest.wait_browser(lambda _:'false',True,timeout=6)
+    with pytest.raises(ValueError,match='did not close'):
+        guest.wait_browser(lambda _:'true',False,timeout=6)

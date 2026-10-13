@@ -65,10 +65,10 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 
 ### 统一入口
 
-自 0.5.6 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
+自 0.5.7 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
 
 ```powershell
-python deploy/release.py --version 0.5.6 --commit <40位源码提交>
+python deploy/release.py --version 0.5.7 --commit <40位源码提交>
 ```
 
 1. 提交版本号与源码，固定标签和完整提交；现有标签不能移到其他提交。源码修改后增加版本号。并行任务未提交的文件不进入 CI 构建。
