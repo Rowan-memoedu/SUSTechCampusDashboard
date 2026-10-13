@@ -62,6 +62,23 @@ def save(path, value):
     temp.replace(path)
 
 
+def upload_file(source, remote):
+    """Resume public staging by digest, using a separate connection per file."""
+    if not re.fullmatch(r'/tmp/sustech-release-[A-Za-z0-9._/-]+',remote):
+        raise ValueError('Invalid public staging path')
+    expected=digest(source)
+    def remote_digest():
+        value=command(['ssh',*SSH_OPTIONS,SSH_HOST,
+            'if test -f '+remote+'; then sha256sum '+remote+'; fi'])
+        return value.split()[0] if value else None
+    if remote_digest()==expected:
+        emit('upload',file=Path(source).name,state='reused_verified_file');return
+    emit('upload',file=Path(source).name,state='transferring')
+    command(['scp',*SSH_OPTIONS,str(source),SSH_HOST+':'+remote],timeout=900)
+    if remote_digest()!=expected:raise ValueError('Remote staging hash mismatch: '+Path(source).name)
+    emit('upload',file=Path(source).name,state='verified')
+
+
 def download(url, path, expected=None):
     path=Path(path)
     if expected and path.exists() and digest(path)==expected:
@@ -219,9 +236,11 @@ class Release:
         elif read_json(site/'release-manifest.json')!=self.manifest:
             raise ValueError('Staged site belongs to different artifacts')
         remote='/tmp/sustech-release-'+self.version+'-'+self.commit[:12]
-        command(['ssh',*SSH_OPTIONS,SSH_HOST,'mkdir -p '+remote])
-        command(['scp',*SSH_OPTIONS,'-r',str(stage/'metadata'),str(site),str(stage/'windows-x86_64.zip'),
-            str(stage/'linux-x86_64.zip'),SSH_HOST+':'+remote+'/'],timeout=900)
+        files=sorted(p for folder in (stage/'metadata',site) for p in folder.rglob('*') if p.is_file())
+        files += [stage/'windows-x86_64.zip',stage/'linux-x86_64.zip']
+        directories=sorted({remote+'/'+p.relative_to(stage).parent.as_posix() for p in files})
+        command(['ssh',*SSH_OPTIONS,SSH_HOST,'mkdir -p '+' '.join(directories)])
+        for source in files:upload_file(source,remote+'/'+source.relative_to(stage).as_posix())
         command(['scp',*SSH_OPTIONS,*[ROOT/'deploy'/n for n in ('promote_release.py','publish_feed.py','feed_metadata.py')],SSH_HOST+':'+remote+'/'])
         expected=hashlib.sha256(blobs['timestamp.json']).hexdigest()
         output=command(['ssh',*SSH_OPTIONS,SSH_HOST,

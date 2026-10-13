@@ -73,3 +73,23 @@ def test_browser_acceptance_waits_for_async_launch_and_rejects_missing_browser(m
         guest.wait_browser(lambda _:'false',True,timeout=6)
     with pytest.raises(ValueError,match='did not close'):
         guest.wait_browser(lambda _:'true',False,timeout=6)
+
+
+def test_interrupted_upload_resumes_and_reuses_only_verified_remote_file(tmp_path,monkeypatch):
+    source=tmp_path/'linux-x86_64.zip';source.write_bytes(b'fixed release bytes')
+    remote='/tmp/sustech-release-1.2.3-aaaaaaaaaaaa/linux-x86_64.zip'
+    state={'hash':None,'attempts':0}
+    def command(args,**kwargs):
+        if args[0]=='ssh':return (state['hash']+'  '+remote) if state['hash'] else ''
+        assert args[0]=='scp'
+        state['attempts']+=1
+        if state['attempts']==1:
+            state['hash']='partial'
+            raise RuntimeError('connection reset')
+        state['hash']=release.digest(source)
+        return ''
+    monkeypatch.setattr(release,'command',command)
+    with pytest.raises(RuntimeError,match='connection reset'):release.upload_file(source,remote)
+    release.upload_file(source,remote)
+    release.upload_file(source,remote)
+    assert state['attempts']==2

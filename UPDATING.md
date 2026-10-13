@@ -65,16 +65,16 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 
 ### 统一入口
 
-自 0.5.7 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
+自 0.5.8 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
 
 ```powershell
-python deploy/release.py --version 0.5.7 --commit <40位源码提交>
+python deploy/release.py --version 0.5.8 --commit <40位源码提交>
 ```
 
 1. 提交版本号与源码，固定标签和完整提交；现有标签不能移到其他提交。源码修改后增加版本号。并行任务未提交的文件不进入 CI 构建。
 2. GitHub Actions 在 Windows/Linux 各构建一次并验收，包内记录提交与逐文件清单。已有候选 Release 直接下载并校验；同一批次失败仅续跑失败的 CI job，正式晋升不触发构建。
 3. 候选安装器先在独立 Windows 标准用户虚拟机验收，基础盘只读、差分盘独立；原账号与资料做保留核验。日常实例继续使用原正式版。以前仍适用的首次 CAS、系统启动证据保留，新版本必须验证实际安装、运行文件与身份。
-4. 本机原离线密钥签发这批 ZIP；原服务器发布锁串联 TUF 与静态页。公共地址重新读取严格签名元数据、双平台完整包和 Windows 安装器，逐一核对哈希。GitHub 的候选原资产晋升稳定版。
+4. 本机原离线密钥签发这批 ZIP；上传前逐文件核对远端哈希，续跑跳过已完整传输的文件。原服务器发布锁串联 TUF 与静态页。公共地址重新读取严格签名元数据、双平台完整包和 Windows 安装器，逐一核对哈希。GitHub 的候选原资产晋升稳定版。
 5. 双平台独立 CI 以及 Windows 10 现有账号实例从旧公开包执行真实签名升级；日常本机最后通过现有正式更新器安装，核对实际文件、凭据、原附件和操作状态。
 6. `D:\Artifacts\SUSTechCampusDashboard\releases\v<版本>\state.json` 仅在以上全部通过后标记 `complete`。`--until candidate` / `--until published` 只用于查看中间结果，状态仍为未完成；正常交付不加此参数。
 
