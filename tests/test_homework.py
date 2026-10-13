@@ -253,6 +253,44 @@ def test_translation_retry_starts_from_accepted_source_and_archives_failed_candi
         runner.produce(job)
 
 
+@pytest.mark.parametrize('review_passes', [True, False])
+def test_formula_word_order_reaches_independent_review_without_bypassing_failure(tmp_path, monkeypatch, review_passes):
+    import sustech_dashboard.homework_engine as module
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['1']},
+        'pipeline': {'english': True, 'calculation': True}})
+    root = runner.setup(job)
+    english = '### Problem 1\nFor $x>0$, $x^2>0$.\n#### Solution\nPositive squares are positive.'
+    (root / 'work/答案册-英文.md').write_text(english, encoding='utf-8')
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def translated(root, stage, *args):
+        assert stage == 'translation'
+        (root / 'work/答案册.md').write_text(
+            '### Problem 1\n$x^2>0$，条件是 $x>0$。\n#### Solution\n正数的平方为正。', encoding='utf-8')
+        return {'status': 'ready'}
+    monkeypatch.setattr(runner, 'ai', translated)
+    reviewed = []
+    def review(root, stage, instruction, ids):
+        reviewed.append(stage)
+        comparison = json.loads((root / 'work/review/translation/formula-comparison.json').read_text(encoding='utf-8'))
+        assert not comparison['exact_match']
+        assert comparison['source'] == ['$x>0$', '$x^2>0$']
+        assert comparison['translation'] == ['$x^2>0$', '$x>0$']
+        if not review_passes:
+            raise ValueError('independent scientific review failed')
+        return {'status': 'PASS'}
+    monkeypatch.setattr(runner, 'review', review)
+    monkeypatch.setattr(module, 'toolchain', lambda _: {'tectonic': ''})
+    with pytest.raises(ValueError, match='Tectonic' if review_passes else 'scientific review failed'):
+        runner.produce(job)
+    assert reviewed == ['translation-review']
+    assert bool(runner.store.get(job['id'])['data']['pipeline'].get('translation')) == review_passes
+    assert (root / 'work/review/translation/accepted.json').exists() == review_passes
+    assert (root / 'work/答案册-英文.md').read_text(encoding='utf-8') == english
+
+
 @pytest.mark.parametrize('tamper', ['none', 'prose', 'page', 'candidate'])
 @pytest.mark.parametrize('has_previous', [False, True])
 def test_figure_crops_require_readonly_review_and_preserve_originals(tmp_path, monkeypatch, tamper, has_previous):

@@ -39,6 +39,12 @@ REVIEW = obj({'status': {'type': 'string', 'enum': ['PASS', 'FAIL']}, 'notes': S
     'problems': {'type': 'array', 'items': obj({'id': STRING, 'source_notes': STRING,
                                              'calculation_notes': STRING, 'translation_notes': STRING})}})
 
+TRANSLATION_BOUNDARY = '''翻译验收以科学正确性和内容完整性为准，宽松接受科学含义相同的表达。
+先读取 workflow/translation-system.txt 与 workflow/translation-user.txt；其中保留英文专业词汇作为输出风格偏好，不作为退回条件。本段验收标准优先于这些文件及旧 feedback 中更严格的措辞、大小写、术语保留和顺序要求。
+专业术语的准确中文译法、普通连接词的汉化、自然语序和等价表达均可接受，不能仅因英文词未原样保留而返回 FAIL。
+只有改变题意、科学概念、数值、符号含义、单位、适用条件、量词、否定、逻辑方向、推导或结论，或遗漏必要内容，才应退回。必须指出实际语义错误及其影响；纯风格或字面差异不列入 findings。
+'''
+
 
 def save(path, value):
     path = Path(path)
@@ -360,30 +366,28 @@ reviewed_pages 写本次实际看过的所有原页图的工作区相对路径�
             checkpoint('calculation')
         if not pipeline.get('translation'):
             phase('translation')
-            result = self.ai(root, 'translation', '''先完整读取 workflow/translation-system.txt 与 workflow/translation-user.txt，并按其独立翻译规则翻译 work/答案册-英文.md。
-输出 work/答案册.md；保留每个英文专业词汇、公式、数字、单位、图片、分问、段落和标签顺序。
-逐分句先从英文原文复制不可变的专业表达，再翻译普通语法骨架；专业动作、属性与数学关系同样需要保留，不能只保留名词。
-从完整英文原稿重新生成，不以旧译文或 feedback 点名的表达作为完整词表。逐项检查所有形容词、副词、实义动词、数量、取值与比较表达，按上下文判定是否专业用法。
-保存 work/review/translation/term-audit.json，逐题记录从本次英文原稿提取的专业表达及其在译文中的原样保留情况；此自检记录不替代独立审核。
-保存前逐句回查原文：大小写、词形与专业表达内部顺序不得改变；也不能把普通连接语法或整句英文一起冻结。
-所有行内公式与独立公式的内容、定界符和出现顺序均须与英文底稿一致，同一句内也不能因中文语序调换；保存后用 Python 抽取数学片段列表并逐项比较。
+            result = self.ai(root, 'translation', TRANSLATION_BOUNDARY + '''从完整 work/答案册-英文.md 生成 work/答案册.md。
+采用中文叙述，尽量沿用英文专业词汇；优先准确、完整、自然，不做术语逐字风格审计。
+完整保留题干、全部分问和推导，核对数字、公式、单位、图片、条件、量词及逻辑关系。公式尽量直接复制原稿，避免翻译引入符号错误；不因无害的语序变化反复重写。
 ### Problem ID 与 #### Solution 标签保持不变。原题是中文时，最终题面从 work/题目.md 恢复原中文，不回译。
 只进行翻译，不重新求解，不压缩推导，不修改英文底稿。
-保存完整译文，存在真实歧义则返回 needs_attention。''', RESULT)
+保存完整译文，仅存在影响科学含义的真实歧义时返回 needs_attention。''', RESULT)
             if result.get('status') != 'ready' or headings(work / '答案册.md') != ids:
                 raise ValueError('翻译未完整覆盖题目')
             english = (work / '答案册-英文.md').read_text(encoding='utf-8')
             chinese = (work / '答案册.md').read_text(encoding='utf-8')
-            if math_spans(english) != math_spans(chinese):
-                raise ValueError('译文的公式内容或出现顺序与英文底稿不一致；同一句内的行内公式也须保持原顺序，请从英文输入重跑翻译')
-            self.review(root, 'translation-review', '''逐段比对 work/答案册-英文.md 与 work/答案册.md，并核对专用翻译规则。
-检查无漏段、无改题、无省略推导，数字、公式、图片、逻辑条件和英文术语保留完整；原中文题面恢复原文。
-每条 findings 必须引用两个文件中实际存在的原文和对应译文，并说明具体差异；先确认被指缺失的表达确实未保留，不能把已有英文表达误报为中文化。
+            save(work / 'review/translation/formula-comparison.json', {
+                'exact_match': math_spans(english) == math_spans(chinese),
+                'source': math_spans(english), 'translation': math_spans(chinese)})
+            self.review(root, 'translation-review', TRANSLATION_BOUNDARY + '''逐段比对 work/答案册-英文.md 与 work/答案册.md，独立核查科学含义和内容完整性。
+检查无漏题、无改题、无省略必要推导；核对数字、公式、图片、逻辑条件及结论，原中文题面恢复原文。
+查看 work/review/translation/formula-comparison.json（若存在）。公式字符串或顺序不同只是核对线索，必须判断是否改变数学含义、对象对应或条件；科学等价的表达可以通过，实质错误必须退回。
+每条 findings 必须引用两个文件中实际存在的原文和对应译文，并说明具体科学错误或遗漏，不能只列字面差异。
 禁止改写译文。problems 按题号覆盖，每题 translation_notes 写实际核验依据，其他 notes 引用已完成的核验；reviewed_pages 可为空。
-发现问题返回 FAIL。''', ids)
+科学正确且内容完整即返回 PASS；存在上述实质问题才返回 FAIL。''', ids)
             save(work / 'review/translation/accepted.json', {'status': 'PASS',
                 'source_sha256': file_sha(work / '答案册-英文.md'), 'translation_sha256': file_sha(work / '答案册.md'),
-                'method': 'Separate translation and independent bilingual review; protected formula equality'})
+                'method': 'Independent bilingual scientific and completeness review with formula comparison evidence'})
             checkpoint('translation')
         if data['source_approved'] != self.source_digest(root, data):
             raise ValueError('生产阶段修改了已确认的题面或原件，审核已失效')
@@ -393,6 +397,7 @@ reviewed_pages 写本次实际看过的所有原页图的工作区相对路径�
         prefix = safe_name(plan['subject'] + '_' + plan['label'])
         hw = {'directory': 'work', 'subject': plan['subject'], 'label': plan['label'], 'ids': ids,
               'textbook': ' / '.join(x['title'] for x in plan['books']), 'questions_per_page': 2,
+              'solution_line_spread': 1.1,
               'question_pdf': prefix + '_题目册.pdf', 'writing_pdf': prefix + '_作答册.pdf',
               'solution_pdf': prefix + '_答案册.pdf'}
         if (work / '题目-英文.md').exists():
@@ -412,7 +417,7 @@ reviewed_pages 写本次实际看过的所有原页图的工作区相对路径�
         phase('visual')
         report = json.loads((work / 'review/final-verification.json').read_text(encoding='utf-8'))
         pages = [f'work/review/pdf-pages/{x["module"]}-{p:02}.png' for x in report['pdfs'] for p in range(1, x['pages'] + 1)]
-        final = self.review(root, 'final-review', '''审核当前三册成品及其英文/中文 Markdown，不能用结构检查代替视觉审查。
+        final = self.review(root, 'final-review', TRANSLATION_BOUNDARY + '''审核当前三册成品及其英文/中文 Markdown，不能用结构检查代替视觉审查。
 读取 work/review/final-verification.json，并实际查看其中每一页 work/review/pdf-pages/*-数字.png，联系表只能用于定位，密集页按原尺寸查看。
 逐页核查缺字、公式、裁切、重叠、分页、图题及作答册每题两页；第二页只有横线，无姓名学号。
 复核每题源文、解答与翻译，返回所有问题。不得改写成品或审核脚本。
