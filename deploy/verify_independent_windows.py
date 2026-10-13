@@ -124,6 +124,7 @@ def verify(directory, assets, manifest, phase, output):
             if not ps('Get-Process campus-client -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id'):return
             time.sleep(2)
         raise RuntimeError('Guest operations still active; no forced stop')
+    emit('independent_windows',state='checking_existing_data',phase=phase)
     initial=proof();stop()
     version=manifest['version'];record=next(a for a in manifest['assets'] if a['filename']=='windows-x86_64.zip')
     if phase=='candidate':
@@ -135,12 +136,15 @@ def verify(directory, assets, manifest, phase, output):
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
             url='http://10.0.2.2:'+str(server.server_port)+'/'+installer['filename']
+            emit('independent_windows',state='installing_candidate',phase=phase)
             ps("$dir=Join-Path $env:LOCALAPPDATA 'CampusVmAcceptance';New-Item -ItemType Directory -Force $dir|Out-Null;"+
                 "$file=Join-Path $dir 'candidate-"+version+".exe';(New-Object Net.WebClient).DownloadFile('"+url+"',$file);"+
                 "if((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne '"+installer['sha256']+"'){throw 'Candidate hash mismatch'};"+
-                "$p=Start-Process $file -ArgumentList @('/SILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru -WindowStyle Hidden;"+
+                "$p=Start-Process $file -ArgumentList @('/SILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -WindowStyle Hidden;"+
+                "if(!$p.WaitForExit(840000)){throw 'Installer still running'};"+
                 "if($p.ExitCode -ne 0){throw 'Installer failed'};Write-Output 'Installer completed with normal automatic launch'")
         finally:server.shutdown();server.server_close()
+        emit('independent_windows',state='checking_running_candidate',phase=phase)
         current=ready(version)
         if not json.loads(ps('[bool](Get-Process chrome,msedge,iexplore -ErrorAction SilentlyContinue)|ConvertTo-Json -Compress')):
             raise ValueError('Normal installer did not open the browser')
@@ -166,6 +170,7 @@ def verify(directory, assets, manifest, phase, output):
             except requests.RequestException:pass
             emit('independent_windows',state='public_signed_upgrade_pending');time.sleep(10)
         else:raise TimeoutError('Guest signed update pending')
+    emit('independent_windows',state='verifying_installed_payload',phase=phase)
     identity=current.get('release_identity',{})
     if (identity.get('version'),identity.get('source_commit'),identity.get('payload_sha256'))!=(version,manifest['source_commit'],record['payload_sha256']):
         raise ValueError('Guest running build differs')
