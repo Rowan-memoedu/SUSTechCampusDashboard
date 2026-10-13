@@ -12,7 +12,7 @@ import time
 import requests
 
 
-def verify(executable, cache, expected):
+def verify(executable, cache, expected, expected_commit=None, expected_sha256=None):
     cache.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix='upgrade-', dir=cache)).resolve()
     retained = {'attachments.json': b'{"seen":["canary-source"],"baseline_at":"2025-01-01"}',
@@ -93,6 +93,14 @@ def verify(executable, cache, expected):
                 break
             time.sleep(.25)
         assert json.loads(record.read_text()) == {'state': 'installed', 'version': expected}
+        identity = value.get('release_identity', {})
+        if expected_commit:
+            assert identity.get('source_commit') == expected_commit, 'Running source commit mismatch'
+            from sustech_dashboard.release_identity import verify_payload, sha256
+            selection = json.loads((root/'updates/current.json').read_text())
+            verify_payload(root/'updates/releases'/selection['directory'], identity)
+            downloads=list((root/'updates/downloads').glob('*'))
+            assert any(p.is_file() and sha256(p)==expected_sha256 for p in downloads), 'Downloaded update hash mismatch'
         assert all((root / name).read_bytes() == data for name, data in retained.items())
         with action.connect() as db:
             assert db.execute('SELECT state FROM actions WHERE id=?', ('canary',)).fetchone() == ('needs_review',)
@@ -101,6 +109,7 @@ def verify(executable, cache, expected):
         assert session.post(base + '/api/instance/stop', json={}, headers=headers).status_code == 202
         assert child.wait(timeout=30) == 0
         result = {'previous': previous, 'version': expected, 'signed_public_upgrade': True,
+                  'source_commit':identity.get('source_commit'), 'artifact_sha256':expected_sha256,
                   'data_preserved': True, 'unknown_writes_not_replayed': True, 'root': str(root)}
         (root / 'acceptance.json').write_text(json.dumps(result, indent=2))
         print(json.dumps(result), flush=True)
@@ -123,5 +132,7 @@ if __name__ == '__main__':
     p.add_argument('executable', type=Path)
     p.add_argument('--cache', required=True, type=Path)
     p.add_argument('--expected', required=True)
+    p.add_argument('--expected-commit')
+    p.add_argument('--expected-sha256')
     a = p.parse_args()
-    verify(a.executable.resolve(), a.cache.resolve(), a.expected)
+    verify(a.executable.resolve(), a.cache.resolve(), a.expected, a.expected_commit, a.expected_sha256)

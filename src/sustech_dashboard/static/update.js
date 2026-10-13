@@ -18,11 +18,11 @@
       if(pending&&last.state==='rolled_back'&&last.failed_version===pending.target){pending=null;sessionStorage.removeItem(storageKey);}
       if(pending&&u.state==='error'){pending=null;sessionStorage.removeItem(storageKey);}
       const rollingBack=last.state==='rolled_back'&&last.failed_version!==data.version&&(!u.latest||last.failed_version===u.latest);
-      let text=u.message+(u.latest?' · '+u.latest:'');
+      let text=u.message+(u.latest?' · 正式版 '+u.latest+' / 本机 '+data.version:'');
       if(rollingBack)text='新版本启动失败，已恢复 '+data.version+'。个人数据保留，可重试更新。';
       else if(pending&&['idle','checking','current'].includes(u.state))text='正在恢复连接并确认新版本，请稍候…';
       else if(last.state==='installed'&&last.version===data.version&&u.state!=='available')text='当前版本 '+data.version+' 已启动。'+u.message;
-      panel.hidden=Boolean(panel.dataset.compact&&!u.available&&!pending&&!rollingBack&&completed!==data.version&&u.state!=='error');
+      panel.hidden=Boolean(panel.dataset.compact&&!u.available&&!pending&&!rollingBack&&completed!==data.version&&!['error','ahead','mismatch'].includes(u.state));
       state.textContent=text;panel.dataset.state=rollingBack||u.state==='error'?'error':pending?'loading':u.state==='current'?'success':'default';
       notes.textContent=u.notes||'';notes.hidden=!u.notes;
       const working=['downloading','ready','waiting','restarting'].includes(u.state);

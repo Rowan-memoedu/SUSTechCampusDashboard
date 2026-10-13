@@ -25,7 +25,7 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def audit_archive(path, version, platform):
+def audit_archive(path, version, platform, commit=None):
     seen = set()
     with zipfile.ZipFile(path) as archive:
         for entry in archive.infolist():
@@ -47,8 +47,23 @@ def audit_archive(path, version, platform):
         if (release.get('version') != version or release.get('platform') != platform
                 or release.get('schema') != 1 or release.get('protocol') != 1):
             raise ValueError('release metadata mismatch')
+        if commit:
+            if release.get('source_commit') != commit:
+                raise ValueError('archive source commit mismatch')
+            index = archive.read('release-files.json')
+            if hashlib.sha256(index).hexdigest() != release.get('payload_sha256'):
+                raise ValueError('archive inventory mismatch')
+            inventory = json.loads(index)
+            actual = {i.filename for i in archive.infolist() if not i.is_dir()} - {'release.json', 'release-files.json'}
+            if set(inventory) != actual:
+                raise ValueError('archive inventory incomplete')
+            for name, record in inventory.items():
+                with archive.open(name) as stream:
+                    file_hash = hashlib.file_digest(stream, 'sha256').hexdigest()
+                if file_hash != record['sha256'] or archive.getinfo(name).file_size != record['size']:
+                    raise ValueError('archive payload mismatch')
     return {'filename': Path(path).name, 'size': Path(path).stat().st_size,
-            'sha256': digest(path)}
+            'sha256': digest(path), 'payload_sha256': release.get('payload_sha256')}
 
 
 def prepare(directory, version, commit):
@@ -57,7 +72,7 @@ def prepare(directory, version, commit):
         raise ValueError('a stable semantic version is required')
     if not re.fullmatch(r'[0-9a-f]{40}', commit):
         raise ValueError('full source commit required')
-    assets = [audit_archive(directory / (platform + '.zip'), version, platform)
+    assets = [audit_archive(directory / (platform + '.zip'), version, platform, commit)
               for platform in ('windows-x86_64', 'linux-x86_64')]
     installer_name = f'SUSTechCampusDashboard-{version}-windows-x86_64-setup.exe'
     installer = directory / installer_name
@@ -65,6 +80,8 @@ def prepare(directory, version, commit):
     installer_asset = {'filename': installer_name, 'size': installer.stat().st_size,
                        'sha256': digest(installer)}
     if (receipt.get('version') != version or receipt.get('filename') != installer_name
+            or receipt.get('source_commit') != commit
+            or receipt.get('payload_sha256') != assets[0]['payload_sha256']
             or receipt.get('size') != installer_asset['size']
             or receipt.get('sha256') != installer_asset['sha256']):
         raise ValueError('installer receipt mismatch')

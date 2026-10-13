@@ -17,6 +17,7 @@ def build(bundle, output, compiler):
         str(Path(__file__).with_name('client.iss'))], check=True)
     installer = output / f"SUSTechCampusDashboard-{release['version']}-windows-x86_64-setup.exe"
     record = {'filename': installer.name, 'version': release['version'],
+              'source_commit': release.get('source_commit'), 'payload_sha256': release.get('payload_sha256'),
               'size': installer.stat().st_size, 'sha256': hashlib.sha256(installer.read_bytes()).hexdigest(),
               'authenticode_signed': False, 'per_user': True, 'data_removed_on_uninstall': False}
     (output / 'installer.json').write_text(json.dumps(record, indent=2), encoding='utf-8')

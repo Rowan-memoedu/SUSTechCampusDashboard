@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import hashlib
 from pathlib import Path
 import zipfile
 
@@ -12,11 +13,16 @@ spec.loader.exec_module(release_assets)
 
 
 def bundle(path, platform='windows-x86_64', extra=None, version='1.2.3'):
+    files = {'campus-client.exe': b'fixture executable',
+             '_internal/sustech_dashboard/update_root.json': b'{"keys":{}}',
+             '_internal/certifi/cacert.pem': b'public certificate'}
+    index = json.dumps({n: {'size':len(b),'sha256':hashlib.sha256(b).hexdigest()} for n,b in files.items()}).encode()
     with zipfile.ZipFile(path, 'w') as archive:
         archive.writestr('release.json', json.dumps(
-            {'version': version, 'platform': platform, 'schema': 1, 'protocol': 1}))
-        archive.writestr('_internal/sustech_dashboard/update_root.json', '{"keys":{}}')
-        archive.writestr('_internal/certifi/cacert.pem', 'public certificate')
+            {'version': version, 'platform': platform, 'schema': 1, 'protocol': 1,
+             'source_commit': 'a'*40, 'payload_sha256': hashlib.sha256(index).hexdigest()}))
+        archive.writestr('release-files.json', index)
+        for name, data in files.items(): archive.writestr(name, data)
         if extra:
             archive.writestr(extra, 'fixture')
 
@@ -62,6 +68,8 @@ def test_allowlist_and_installer_hash(tmp_path):
     installer = tmp_path / 'SUSTechCampusDashboard-1.2.3-windows-x86_64-setup.exe'
     installer.write_bytes(b'fixture')
     receipt = {'version': '1.2.3', 'filename': installer.name, 'size': 7,
+               'source_commit': 'a'*40,
+               'payload_sha256': release_assets.audit_archive(tmp_path/'windows-x86_64.zip','1.2.3','windows-x86_64')['payload_sha256'],
                'sha256': release_assets.digest(installer), 'authenticode_signed': False}
     (tmp_path / 'installer.json').write_text(json.dumps(receipt))
     (tmp_path / 'private-log.txt').write_text('must not enter manifest')

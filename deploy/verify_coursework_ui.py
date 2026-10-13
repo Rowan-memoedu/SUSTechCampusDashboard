@@ -49,6 +49,7 @@ def main():
     state = dict(updated_at=stamp, tis={}, warnings=[], errors={}, assignments=tasks,
                  assignment_coverage=coverage)
     report = {'school_writes': 0, 'errors': [], 'widths': [320, 375, 768, 1280]}
+    update = {'state':'current','available':False,'latest':'0.5.5','message':'已与正式版本同步'}
     def api(route):
         path = route.request.url.split(origin, 1)[-1]
         if path == '/api/status':
@@ -60,7 +61,7 @@ def main():
                 can_submit=False, official_url='https://example.org/assignment'))
         if path == '/api/instance':
             return route.fulfill(json={'configured': True, 'managed': True, 'mode': 'local',
-                'version': 'fixture', 'update': {'state': 'current', 'available': False}})
+                'version': '0.5.5', 'update': update})
         return route.fulfill(json={'items': [], 'courses': [], 'records': [], 'jobs': [],
             'library': [], 'ehall': [], 'errors': [], 'baseline_ready': True,
             'agent': {'online': False}})
@@ -96,6 +97,20 @@ def main():
             page.evaluate('renderDashboard({updated_at:"2026-10-12T12:00:00+08:00",tis:{},assignments:[],assignment_coverage:[{course:"样例",state:"complete",received:0,retained:0,checked_at:"2026-10-12T12:00:00+08:00"}]})')
             assert page.locator('.assignment').count() == 0
             assert '暂无作业' in page.locator('#assignments').inner_text()
+            report['update_states'] = []
+            for name,message in [('ahead','本机候选版领先正式版，尚未同步'),
+                                 ('mismatch','版本号相同，但本机构建与正式版不同，尚未同步'),
+                                 ('current','已与正式版本同步')]:
+                update.update(state=name,message=message,latest='0.4.3' if name=='ahead' else '0.5.5')
+                page.goto(origin+'/settings')
+                page.get_by_text(message,exact=False).wait_for()
+                assert page.locator('#update-install').is_disabled()
+                assert page.locator('#update-panel').get_attribute('data-state')==('success' if name=='current' else 'default')
+                for width in (320,375,414,768):
+                    page.set_viewport_size({'width':width,'height':900})
+                    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                page.screenshot(path=str(args.output/f'update-{name}.png'),full_page=True)
+                report['update_states'].append(name)
             assert not report['errors'], report['errors']
         report['passed'] = True
     finally:

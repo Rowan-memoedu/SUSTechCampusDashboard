@@ -1,0 +1,54 @@
+name: Verify published signed upgrade
+run-name: Published upgrade ${{ inputs.tag }}
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
+      previous_windows:
+        required: true
+        type: string
+      previous_linux:
+        required: true
+        type: string
+permissions:
+  contents: read
+env:
+  PYTHONUTF8: '1'
+  PYTHONIOENCODING: utf-8
+jobs:
+  upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -e .
+      - name: Linux real old-version signed upgrade
+        if: runner.os == 'Linux'
+        env:
+          TAG: ${{ inputs.tag }}
+          COMMIT: ${{ inputs.commit }}
+          PREVIOUS: ${{ inputs.previous_linux }}
+        run: python deploy/verify_public_upgrade.py --version "${TAG#v}" --commit "$COMMIT" --previous-sha256 "$PREVIOUS" --cache upgrade-acceptance
+      - name: Windows standard-user real old-version signed upgrade
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TAG: ${{ inputs.tag }}
+          COMMIT: ${{ inputs.commit }}
+          PREVIOUS: ${{ inputs.previous_windows }}
+        run: ./deploy/run_windows_acceptance.ps1 -Python (Get-Command python).Source -Arguments @('deploy/verify_public_upgrade.py','--version',$env:TAG.Substring(1),'--commit',$env:COMMIT,'--previous-sha256',$env:PREVIOUS,'--cache','__USER_TEMP__/upgrade-acceptance')

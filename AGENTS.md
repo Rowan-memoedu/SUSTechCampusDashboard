@@ -1,5 +1,7 @@
 # 校园面板开发边界
 
+- 每次功能更新必须走 `python deploy/release.py --version <版本> --commit <完整提交>` 的统一发布入口。固定源码后每平台只构建一次，候选在独立实例验收，复用同一批资产发布 GitHub、静态页和原 TUF 源，日常本机再通过正式更新器安装。禁止用候选安装器覆盖日常实例作为交付；源码修改后必须增加版本号，不能替换已发布版本的文件。只有批次 `state.json` 为 `complete`，且本机、正式源、GitHub 的版本、源码提交和平台产物哈希实测一致，才能报告更新完成。失败保留批次并从失败阶段继续；不得用重建同版本包替代续跑。
+
 - 当前范围以 docs/WEB-HOSTED-PLAN.md 为准；新 Thread 从 docs/LOCAL-MODE-HANDOFF.md 开始。迁移与托管退役见 docs/LOCAL-MODE-ACCEPTANCE.md，当前分发、兼容性和独立 Windows 实测状态以 docs/RELEASE-0.4.3-ACCEPTANCE.md 为准，不能以同账号重装或 fixture 替代独立 Windows 验收。docs/RELEASE-0.4.1-ACCEPTANCE.md 与 docs/HOSTED-PHASE1.md 保留历史证据，不能把旧部署步骤当成恢复托管的授权。
 - 一个用户、一个进程、一个私密目录；上游认证有进程全局状态，禁止逐请求切换账号。复用 Flask 页面、业务适配器和 SQLite 账本，保持本机与用户自有 Linux 服务器兼容。
 - 默认个人页面与业务脚本由本机提供。禁止默认跳公网登录、恢复运营者配对或引入远程个人数据依赖；个人服务器的显式配置不得误删。

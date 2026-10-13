@@ -63,6 +63,25 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 
 ## 维护者发布
 
+### 统一入口
+
+自 0.5.5 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
+
+```powershell
+python deploy/release.py --version 0.5.5 --commit <40位源码提交>
+```
+
+1. 提交版本号与源码，固定标签和完整提交；现有标签不能移到其他提交。源码修改后增加版本号。并行任务未提交的文件不进入 CI 构建。
+2. GitHub Actions 在 Windows/Linux 各构建一次并验收，包内记录提交与逐文件清单。已有候选 Release 直接下载并校验；同一批次失败仅续跑失败的 CI job，正式晋升不触发构建。
+3. 候选安装器先在独立 Windows 标准用户虚拟机验收，基础盘只读、差分盘独立；原账号与资料做保留核验。日常实例继续使用原正式版。以前仍适用的首次 CAS、系统启动证据保留，新版本必须验证实际安装、运行文件与身份。
+4. 本机原离线密钥签发这批 ZIP；原服务器发布锁串联 TUF 与静态页。公共地址重新读取严格签名元数据、双平台完整包和 Windows 安装器，逐一核对哈希。GitHub 的候选原资产晋升稳定版。
+5. 双平台独立 CI 以及 Windows 10 现有账号实例从旧公开包执行真实签名升级；日常本机最后通过现有正式更新器安装，核对实际文件、凭据、原附件和操作状态。
+6. `D:\Artifacts\SUSTechCampusDashboard\releases\v<版本>\state.json` 仅在以上全部通过后标记 `complete`。`--until candidate` / `--until published` 只用于查看中间结果，状态仍为未完成；正常交付不加此参数。
+
+维护者前置环境为现有 GitHub CLI 登录、SSH 主机密钥、原 DPAPI 发布密钥与独立 Windows 验收代理。它们只在维护端使用，不进入分发包。公开文件清单位于 GitHub Release 与 `/app/downloads/release-manifest.json`；同一版本的源码提交、平台 ZIP 哈希、安装器哈希必须一致。包内 `release-files.json` 用来核验解压后的真实运行文件，不能用 EXE 的哈希替代 ZIP 哈希。
+
+原 TUF 根、自动续签、旧版客户端和回滚机制继续使用。下面的签名/上传脚本是统一入口调用的底层组件，仅供恢复排障，不再作为三套独立的日常发布步骤。跨站点发布存在短暂中间状态；未通过公共回读与本机验收时整个批次保持未完成，原包及原数据保留。
+
 根密钥和安装包清单（targets）密钥仅位于发布者 Windows 用户的 `D:\AppData\SUSTechCampusPublisher\release-keys.dpapi.json`，用 DPAPI 加密，不进入仓库、构建包或服务器。服务器仅持有 snapshot、timestamp 两把在线密钥，通过 systemd `LoadCredential` 注入专用服务。公开信任根为 `src/sustech_dashboard/update-root.json`，本次不更换信任根或密钥身份。必须另行安全备份该 Windows 用户可恢复的离线发布密钥。
 
 1. 修改源码及 `pyproject.toml`、`__init__.py` 版本号；测试通过后在两个目标系统构建。仓库已经完成首次初始化，本阶段不要再次运行 `deploy/publish_release.py --init`，不得替换现有信任链。

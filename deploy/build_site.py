@@ -10,6 +10,9 @@ import zipfile
 def build(installer, linux, output):
     installer, linux, output = Path(installer), Path(linux), Path(output)
     record = json.loads((installer.parent / 'installer.json').read_text())
+    manifest = json.loads((installer.parent / 'release-manifest.json').read_text())
+    if record.get('source_commit') != manifest['source_commit'] or record['version'] != manifest['version']:
+        raise ValueError('Site source identity mismatch')
     if installer.name != record['filename'] or hashlib.sha256(installer.read_bytes()).hexdigest() != record['sha256']:
         raise ValueError('Installer manifest mismatch')
     with zipfile.ZipFile(linux) as archive:
@@ -31,6 +34,8 @@ def build(installer, linux, output):
     (output / 'downloads').mkdir()
     shutil.copyfile(installer, output / 'downloads' / installer.name)
     (output / 'release.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
+    shutil.copyfile(installer.parent / 'release-manifest.json', output / 'release-manifest.json')
+    shutil.copyfile(installer.parent / 'release-manifest.json', output / 'downloads/release-manifest.json')
     print(json.dumps({'version': record['version'], 'output': str(output), 'static_only': True}))
 
 

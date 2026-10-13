@@ -162,8 +162,10 @@ def register_instance(app, runtime, guard, csrf):
     @app.get("/api/instance")
     def instance_status():
         from .desktop import preferences
+        from .release_identity import read_identity
         return jsonify({"version": __version__, "mode": "托管空间" if is_hosted else "个人服务器" if cloud else "本机客户端",
             "execution_mode": mode(), "api_version": 1, "data_format_version": 1,
+            "release_identity": read_identity(),
             "configured": runtime.configured.is_set(), "data_root": '独立私密空间' if is_hosted else str(DATA_ROOT), "download_root": '学校直达浏览器或自己的电脑' if is_hosted else str(DOWNLOAD_ROOT),
             "download_mode": 'school_direct' if cloud else 'local',
             "update": dict(runtime.update.state), "managed": not is_hosted and bool(os.environ.get("SUSTECH_MANAGED_RUNTIME")),

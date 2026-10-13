@@ -143,10 +143,19 @@ class UpdateManager:
             return dict(self.state)
         try:
             self.state.update(state="checking", message="正在校验版本签名")
-            _, _, release = self._target()
+            _, target, release = self._target()
             available = valid_version(release["version"]) > valid_version(__version__)
-            self.state.update(state="available" if available else "current", latest=release["version"],
-                              available=available, message="有新版本可安装" if available else "已是当前版本",
+            ahead = valid_version(release["version"]) < valid_version(__version__)
+            from .release_identity import read_identity
+            identity = read_identity()
+            mismatch = (not available and not ahead and bool(release.get('source_commit')) and
+                any(identity.get(k) != release.get(k) for k in ('source_commit', 'payload_sha256')))
+            state = 'available' if available else 'ahead' if ahead else 'mismatch' if mismatch else 'current'
+            message = {'available': '有新版本可安装', 'ahead': '本机候选版领先正式版，尚未同步',
+                'mismatch': '版本号相同，但本机构建与正式版不同，尚未同步', 'current': '已与正式版本同步'}[state]
+            self.state.update(state=state, latest=release["version"],
+                              available=available, message=message,
+                              source_commit=release.get('source_commit'), artifact_sha256=target.hashes['sha256'],
                               notes=str(release.get('notes', ''))[:2000],
                               checked_at=datetime.now(timezone.utc).isoformat())
         except Exception as exc:
@@ -172,7 +181,8 @@ class UpdateManager:
                     directory += "-" + secrets.token_hex(4)
                     destination = self.base / "releases" / directory
                 extract_release(archive, destination, release)
-                pending = {"directory": directory, "version": release["version"], "schema": SCHEMA}
+                pending = {"directory": directory, "version": release["version"], "schema": SCHEMA,
+                           "source_commit": release.get('source_commit'), "artifact_sha256": target.hashes['sha256']}
                 save_json(self.base / "pending.json", pending)
                 self.state.update(state="ready", message="更新已校验，正在等待当前操作结束后重启")
                 return pending
