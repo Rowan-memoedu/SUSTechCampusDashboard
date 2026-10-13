@@ -40,6 +40,32 @@ def preserved(before,after):
         and all(after['actions'].get(k)==v for k,v in before['actions'].items()))
 
 
+def committed_selection(root, version, timeout=90):
+    """A healthy new backend can answer before its supervisor commits the pointer."""
+    from release import emit
+    deadline=time.monotonic()+timeout
+    announced=False
+    while True:
+        try:
+            pointer=json.loads((root/'updates/current.json').read_text(encoding='utf-8'))
+            result=json.loads((root/'updates/last-result.json').read_text(encoding='utf-8'))
+        except (FileNotFoundError,json.JSONDecodeError):
+            pointer,result={},{}
+        if result.get('state')=='rolled_back' and result.get('failed_version')==version:
+            raise RuntimeError('Owner update rolled back; original usable version retained')
+        if pointer.get('version')==version and result=={'state':'installed','version':version}:
+            folder=(root/'updates/releases'/pointer['directory']).resolve()
+            if not folder.is_relative_to((root/'updates/releases').resolve()):
+                raise ValueError('Invalid installed pointer')
+            return folder
+        if time.monotonic()>=deadline:
+            raise TimeoutError('Owner updater has not committed the published version')
+        if not announced:
+            emit('owner_update',version=version,state='waiting_for_committed_selection')
+            announced=True
+        time.sleep(2)
+
+
 def verify(manifest, output, port):
     from release import save,emit
     version,commit=manifest['version'],manifest['source_commit']
@@ -87,9 +113,7 @@ def verify(manifest, output, port):
     identity=current.get('release_identity',{})
     expected={'version':version,'source_commit':commit,'payload_sha256':asset['payload_sha256']}
     if any(identity.get(k)!=v for k,v in expected.items()):raise ValueError('Running identity differs from public release')
-    pointer=json.loads((DATA_ROOT/'updates/current.json').read_text(encoding='utf-8'))
-    folder=(DATA_ROOT/'updates/releases'/pointer['directory']).resolve()
-    if not folder.is_relative_to((DATA_ROOT/'updates/releases').resolve()):raise ValueError('Invalid installed pointer')
+    folder=committed_selection(DATA_ROOT,version)
     verify_payload(folder,expected)
     downloaded=[p for p in (DATA_ROOT/'updates/downloads').iterdir() if p.is_file()]
     if not any(sha256(p)==asset['sha256'] for p in downloaded):raise ValueError('Owner download hash differs')

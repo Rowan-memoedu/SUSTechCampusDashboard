@@ -86,14 +86,33 @@ def download(url, path, expected=None):
     path.parent.mkdir(parents=True,exist_ok=True)
     temporary=path.with_suffix(path.suffix+'.partial')
     s=requests.Session(); s.trust_env=False
-    with s.get(url,stream=True,timeout=(15,90),headers={'Cache-Control':'no-cache'}) as response:
-        response.raise_for_status()
-        last=time.monotonic(); size=0
-        with temporary.open('wb') as stream:
-            for block in response.iter_content(1024*1024):
-                stream.write(block); size+=len(block)
-                if time.monotonic()-last>25:
-                    emit('download',file=path.name,bytes=size); last=time.monotonic()
+    if expected and temporary.exists() and digest(temporary)==expected:
+        temporary.replace(path);return
+    for attempt in range(3):
+        size=temporary.stat().st_size if expected and temporary.exists() else 0
+        headers={'Cache-Control':'no-cache'}
+        if size:headers['Range']=f'bytes={size}-'
+        try:
+            with s.get(url,stream=True,timeout=(15,90),headers=headers) as response:
+                response.raise_for_status()
+                if response.status_code==206:
+                    interval=re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',response.headers.get('Content-Range',''))
+                    if not interval or int(interval[1])!=size or not size or not size<=int(interval[2])<int(interval[3]):
+                        raise ValueError('Invalid resumed download range')
+                    mode='ab'
+                else:
+                    size=0;mode='wb'
+                last=time.monotonic()
+                with temporary.open(mode) as stream:
+                    for block in response.iter_content(1024*1024):
+                        stream.write(block); size+=len(block)
+                        if time.monotonic()-last>25:
+                            emit('download',file=path.name,bytes=size); last=time.monotonic()
+            break
+        except requests.RequestException:
+            if attempt==2:raise
+            emit('download',file=path.name,state='retrying_transport',attempt=attempt+2,bytes=size)
+            time.sleep(2**attempt)
     if expected and digest(temporary)!=expected:
         raise ValueError('Public artifact hash mismatch: '+path.name)
     temporary.replace(path)
@@ -292,7 +311,13 @@ class Release:
             self.freeze();self.candidate()
             if until=='candidate':return
             self.independent_windows(agent_directory,'candidate')
-            self.publish();self.verify_public()
+            published=self.state['steps'].get('feed_site',{})
+            if not (published.get('version')==self.version and published.get('source_commit')==self.commit
+                    and published.get('feed_and_site_published') is True):
+                self.publish()
+            # A recorded publication is revalidated from public addresses. Do not
+            # reopen SSH or republish it when only a later acceptance step failed.
+            self.verify_public()
             self.public_upgrades();self.independent_windows(agent_directory,'upgrade')
             gh('release','edit',self.tag,'--repo',REPO,'--prerelease=false','--latest')
             self.verify_public(require_stable=True)

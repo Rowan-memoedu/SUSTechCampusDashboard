@@ -65,10 +65,10 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 
 ### 统一入口
 
-自 0.5.8 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
+自 0.5.9 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
 
 ```powershell
-python deploy/release.py --version 0.5.8 --commit <40位源码提交>
+python deploy/release.py --version 0.5.9 --commit <40位源码提交>
 ```
 
 1. 提交版本号与源码，固定标签和完整提交；现有标签不能移到其他提交。源码修改后增加版本号。并行任务未提交的文件不进入 CI 构建。
@@ -76,7 +76,9 @@ python deploy/release.py --version 0.5.8 --commit <40位源码提交>
 3. 候选安装器先在独立 Windows 标准用户虚拟机验收，基础盘只读、差分盘独立；原账号与资料做保留核验。日常实例继续使用原正式版。以前仍适用的首次 CAS、系统启动证据保留，新版本必须验证实际安装、运行文件与身份。
 4. 本机原离线密钥签发这批 ZIP；上传前逐文件核对远端哈希，续跑跳过已完整传输的文件。原服务器发布锁串联 TUF 与静态页。公共地址重新读取严格签名元数据、双平台完整包和 Windows 安装器，逐一核对哈希。GitHub 的候选原资产晋升稳定版。
 5. 双平台独立 CI 以及 Windows 10 现有账号实例从旧公开包执行真实签名升级；日常本机最后通过现有正式更新器安装，核对实际文件、凭据、原附件和操作状态。
-6. `D:\Artifacts\SUSTechCampusDashboard\releases\v<版本>\state.json` 仅在以上全部通过后标记 `complete`。`--until candidate` / `--until published` 只用于查看中间结果，状态仍为未完成；正常交付不加此参数。
+6. 本机验收等待更新器同时提交版本指针和安装成功记录，再核对真实运行文件；不能把新后台刚开始响应当作提交完成。`D:\Artifacts\SUSTechCampusDashboard\releases\v<版本>\state.json` 仅在以上全部通过后标记 `complete`。`--until candidate` / `--until published` 只用于查看中间结果，状态仍为未完成；正常交付不加此参数。
+
+续跑时，已经记录成功的公开发布只从公开地址重新核验，不重复进入 SSH 发布阶段；公开身份发生变化时停止，不能覆盖别的正式版本。HTTP 大文件传输中断会保留部分文件并尝试断点续传；仍须通过完整 SHA256 才接受文件。
 
 维护者前置环境为现有 GitHub CLI 登录、SSH 主机密钥、原 DPAPI 发布密钥与独立 Windows 验收代理。它们只在维护端使用，不进入分发包。公开文件清单位于 GitHub Release 与 `/app/downloads/release-manifest.json`；同一版本的源码提交、平台 ZIP 哈希、安装器哈希必须一致。包内 `release-files.json` 用来核验解压后的真实运行文件，不能用 EXE 的哈希替代 ZIP 哈希。
 
@@ -84,12 +86,13 @@ python deploy/release.py --version 0.5.8 --commit <40位源码提交>
 
 根密钥和安装包清单（targets）密钥仅位于发布者 Windows 用户的 `D:\AppData\SUSTechCampusPublisher\release-keys.dpapi.json`，用 DPAPI 加密，不进入仓库、构建包或服务器。服务器仅持有 snapshot、timestamp 两把在线密钥，通过 systemd `LoadCredential` 注入专用服务。公开信任根为 `src/sustech_dashboard/update-root.json`，本次不更换信任根或密钥身份。必须另行安全备份该 Windows 用户可恢复的离线发布密钥。
 
-1. 修改源码及 `pyproject.toml`、`__init__.py` 版本号；测试通过后在两个目标系统构建。仓库已经完成首次初始化，本阶段不要再次运行 `deploy/publish_release.py --init`，不得替换现有信任链。
-2. `python deploy/build_client.py --output <产物目录> --work <缓存目录>`。依赖按 requirements-build.txt 安装；源码依赖见 pyproject.toml。Windows 10/11 x64 和 Ubuntu 24.04 x64 已列为当前验收平台，其他 Linux 发行版不能推断兼容。
-3. `python deploy/verify_client.py <可执行文件> --cache <隔离验收目录>` 验证真实可执行文件首次启动、访问限制和正常停止。运行完整 pytest；学校侧只执行读取验收。
-4. `python deploy/publish_release.py --repository D:\Artifacts\SUSTechCampusDashboard\feed <windows-x86_64.zip> <linux-x86_64.zip>`。同一平台已发布版本不可换包，需增加版本号。
-5. 将该 feed 的公开文件同步到静态 HTTPS `/campus-updates/`；先上传目标文件与带版本号的元数据，最后原子替换 timestamp.json。不要上传发布密钥、账号数据或整个工作区。
-6. 客户端的“检查更新”应显示新版本。先在隔离实例升级并验证数据保持，再更新自己的个人运行端；第二阶段至少覆盖原 0.3.5 到新版的真实升级。源码仓库已公开，源码与可执行包分别维护，均不得混入私人运行材料。
+### 底层组件与恢复边界
+
+- `build_client.py`、`build_installer.py` 由候选构建工作流使用；发布和本机同步复用其已验证产物。手工构建只用于隔离排障，不能替换同版本的正式包。依赖见 requirements-build.txt 与 pyproject.toml。
+- `publish_release.py` 只为既有资产签发清单；仓库已经初始化，不得再次运行 `--init` 或替换现有信任链。`promote_release.py` 与 `publish_feed.py` 在同一服务器发布锁内核验资产和元数据，最后切换公开入口。
+- `verify_client.py`、`verify_public_upgrade.py`、`verify_independent_windows.py`、`verify_owner_update.py` 分别负责干净启动、公开旧版升级、独立 Windows 与日常实例核验；统一入口记录每一步的结果。
+- Windows 10/11 x64 与 Ubuntu 24.04 x64 为当前验收平台，其他架构、Linux 发行版或组织策略不能推断兼容。校园侧只执行读取验收，不以真实测试预约或作业提交验证发布。
+- 失败时先查该版本 `state.json`，使用原版本与完整提交重跑统一入口；不得用手工覆盖日常安装目录、重建同版本包或逐个发布渠道来声明同步完成。源码仓库与分发资产均不得混入私人运行材料。
 
 快照、时间戳有效期均为 30 天，由服务器每 20 天续签。安装包清单由本机签发，有效期与当前根元数据一致，至 2031-09-30；在线密钥不能延长它。客户端继续拒绝过期元数据，现有程序仍可运行；新鲜元数据发布后恢复正常检查。根／安装包授权到期前须在本机维护，更换密钥应通过 TUF 根轮换完成。
 

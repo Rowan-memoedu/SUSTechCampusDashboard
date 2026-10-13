@@ -93,3 +93,114 @@ def test_interrupted_upload_resumes_and_reuses_only_verified_remote_file(tmp_pat
     release.upload_file(source,remote)
     release.upload_file(source,remote)
     assert state['attempts']==2
+
+
+def test_owner_acceptance_waits_for_pointer_and_success_record(tmp_path,monkeypatch):
+    import verify_owner_update as owner
+    now=[0]
+    def commit_after_backend_started(delay):
+        now[0]+=delay
+        release.save(tmp_path/'updates/current.json',{'directory':'new','version':'1.2.3'})
+        if now[0]>=4:
+            release.save(tmp_path/'updates/last-result.json',{'state':'installed','version':'1.2.3'})
+    release.save(tmp_path/'updates/current.json',{'directory':'old','version':'1.2.2'})
+    release.save(tmp_path/'updates/last-result.json',{'state':'installed','version':'1.2.2'})
+    monkeypatch.setattr(owner.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(owner.time,'sleep',commit_after_backend_started)
+    assert owner.committed_selection(tmp_path,'1.2.3',10)==(tmp_path/'updates/releases/new').resolve()
+    assert now[0]==4
+
+
+def test_owner_acceptance_rejects_uncommitted_or_rolled_back_selection(tmp_path,monkeypatch):
+    import verify_owner_update as owner
+    now=[0]
+    monkeypatch.setattr(owner.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(owner.time,'sleep',lambda delay:now.__setitem__(0,now[0]+delay))
+    release.save(tmp_path/'updates/current.json',{'directory':'new','version':'1.2.3'})
+    release.save(tmp_path/'updates/last-result.json',{'state':'installed','version':'1.2.2'})
+    with pytest.raises(TimeoutError,match='not committed'):
+        owner.committed_selection(tmp_path,'1.2.3',4)
+    release.save(tmp_path/'updates/last-result.json',{'state':'rolled_back','failed_version':'1.2.3'})
+    with pytest.raises(RuntimeError,match='rolled back'):
+        owner.committed_selection(tmp_path,'1.2.3',4)
+
+
+@pytest.mark.parametrize('public_changed',[False,True])
+def test_resume_after_publication_needs_public_validation_but_no_republication(tmp_path,monkeypatch,public_changed):
+    job=release.Release('1.2.3','a'*40,tmp_path);job.records={}
+    job.record('feed_site',{'version':'1.2.3','source_commit':'a'*40,'feed_and_site_published':True})
+    for name in ('freeze','candidate','independent_windows','public_upgrades'):
+        monkeypatch.setattr(job,name,lambda *a,**k:None)
+    def unexpected_publish():raise AssertionError('A completed publication must not reopen SSH')
+    monkeypatch.setattr(job,'publish',unexpected_publish)
+    monkeypatch.setattr(release,'gh',lambda *a:'')
+    verified=[];local=[]
+    def public(**kwargs):
+        verified.append(True)
+        if public_changed:raise ValueError('Public identity changed')
+    monkeypatch.setattr(job,'verify_public',public)
+    monkeypatch.setattr(job,'local_sync',lambda *a:local.append(True))
+    if public_changed:
+        with pytest.raises(ValueError,match='Public identity changed'):job.run(tmp_path,18765)
+        assert not local and job.state['status']=='incomplete'
+    else:
+        job.run(tmp_path,18765)
+        assert local==[True] and job.state['status']=='complete'
+    assert verified
+
+
+class DownloadResponse:
+    def __init__(self,status,chunks,content_range=None):
+        self.status_code=status;self.chunks=chunks
+        self.headers={'Content-Range':content_range} if content_range else {}
+    def __enter__(self):return self
+    def __exit__(self,*args):pass
+    def raise_for_status(self):pass
+    def iter_content(self,size):
+        for chunk in self.chunks:
+            if isinstance(chunk,Exception):raise chunk
+            yield chunk
+
+
+def download_session(monkeypatch,responses):
+    from types import SimpleNamespace
+    calls=[];responses=iter(responses)
+    def get(*args,**kwargs):
+        calls.append(kwargs['headers']);return next(responses)
+    monkeypatch.setattr(release.requests,'Session',lambda:SimpleNamespace(get=get))
+    monkeypatch.setattr(release.time,'sleep',lambda _:None)
+    return calls
+
+
+def test_public_download_resumes_interrupted_response_and_checks_complete_hash(tmp_path,monkeypatch):
+    import hashlib
+    calls=download_session(monkeypatch,[
+        DownloadResponse(200,[b'ab',release.requests.ConnectionError('interrupted')]),
+        DownloadResponse(206,[b'cdef'],'bytes 2-5/6')])
+    path=tmp_path/'fixed.zip'
+    release.download('https://fixture.invalid/fixed.zip',path,hashlib.sha256(b'abcdef').hexdigest())
+    assert path.read_bytes()==b'abcdef' and calls[1]['Range']=='bytes=2-'
+    assert not path.with_suffix('.zip.partial').exists()
+
+
+@pytest.mark.parametrize('status,interval,expected_success',[(200,None,True),(206,'bytes 3-5/6',False)])
+def test_public_download_handles_ignored_range_and_rejects_wrong_range(tmp_path,monkeypatch,status,interval,expected_success):
+    import hashlib
+    path=tmp_path/'fixed.zip';partial=path.with_suffix('.zip.partial');partial.write_bytes(b'ab')
+    download_session(monkeypatch,[DownloadResponse(status,[b'abcdef'],interval)])
+    if expected_success:
+        release.download('https://fixture.invalid/fixed.zip',path,hashlib.sha256(b'abcdef').hexdigest())
+        assert path.read_bytes()==b'abcdef'
+    else:
+        with pytest.raises(ValueError,match='Invalid resumed download range'):
+            release.download('https://fixture.invalid/fixed.zip',path,hashlib.sha256(b'abcdef').hexdigest())
+        assert not path.exists() and partial.read_bytes()==b'ab'
+
+
+def test_public_download_does_not_accept_corrupt_complete_file(tmp_path,monkeypatch):
+    import hashlib
+    path=tmp_path/'fixed.zip'
+    download_session(monkeypatch,[DownloadResponse(200,[b'wrong'])])
+    with pytest.raises(ValueError,match='hash mismatch'):
+        release.download('https://fixture.invalid/fixed.zip',path,hashlib.sha256(b'abcdef').hexdigest())
+    assert not path.exists()
