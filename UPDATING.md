@@ -65,7 +65,7 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 
 ### 统一入口
 
-自 0.5.10 起，按 2026-10-14 用户确认的 Windows 范围，常规更新只使用以下入口；中途失败用相同参数继续：
+自 0.5.11 起，按 2026-10-14 用户确认的 Windows 范围，常规更新只使用以下入口；中途失败用相同参数继续：
 
 ```powershell
 python deploy/release.py --version <新版本> --commit <40位源码提交>
@@ -81,6 +81,8 @@ python deploy/release.py --version <新版本> --commit <40位源码提交>
 默认参数为 `--platforms windows`，不会构建、发布或验收新版 Linux。只有用户明确恢复双平台交付时使用 `--platforms all`；该范围还运行 Linux 和旧独立 Windows 10 虚拟机门禁。批次平台范围固定，不能在续跑时悄悄改变。
 
 续跑时，已经记录成功的公开发布只从公开地址重新核验，不重复进入 SSH 发布阶段；公开身份发生变化时停止，不能覆盖别的正式版本。HTTP 大文件传输中断会保留部分文件并尝试断点续传；仍须通过完整 SHA256 才接受文件。
+
+Windows 维护端下载 GitHub 公开资产时沿用已配置的系统代理，不修改代理或网络设置；TUF 与校园连接保持原路线。网络恢复、系统代理选择和断点续传都不能绕过完整产物哈希校验。
 
 维护者前置环境为现有 GitHub CLI 登录、SSH 主机密钥、原 DPAPI 发布密钥与 Google Chrome。它们只在维护端使用，不进入分发包。公开文件清单位于 GitHub Release 与 `/app/downloads/release-manifest.json`；同一版本的源码提交、平台 ZIP 哈希、安装器哈希必须一致。包内 `release-files.json` 用来核验解压后的真实运行文件，不能用 EXE 的哈希替代 ZIP 哈希。
 

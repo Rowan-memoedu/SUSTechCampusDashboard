@@ -253,3 +253,20 @@ def test_public_download_does_not_accept_corrupt_complete_file(tmp_path,monkeypa
     with pytest.raises(ValueError,match='hash mismatch'):
         release.download('https://fixture.invalid/fixed.zip',path,hashlib.sha256(b'abcdef').hexdigest())
     assert not path.exists()
+
+
+@pytest.mark.parametrize('url,use_proxy',[
+    ('https://github.com/owner/project/releases/download/v1/package.zip',True),
+    ('https://124.221.144.155/campus-updates/targets/package.zip',False),
+    ('https://github.com.other.invalid/package.zip',False)])
+def test_public_github_download_reuses_existing_windows_proxy_only(tmp_path,monkeypatch,url,use_proxy):
+    from types import SimpleNamespace
+    import hashlib
+    session=SimpleNamespace(get=lambda *a,**k:DownloadResponse(200,[b'artifact']))
+    monkeypatch.setattr(release.requests,'Session',lambda:session)
+    monkeypatch.setattr(release,'os',SimpleNamespace(name='nt'))
+    monkeypatch.setattr(release,'proxy_bypass',lambda _:False)
+    monkeypatch.setattr(release,'getproxies',lambda:{'https':'http://127.0.0.1:7897','no':'localhost'})
+    release.download(url,tmp_path/'package.zip',hashlib.sha256(b'artifact').hexdigest())
+    assert getattr(session,'proxies',{})==({'https':'http://127.0.0.1:7897'} if use_proxy else {})
+    assert session.trust_env is False

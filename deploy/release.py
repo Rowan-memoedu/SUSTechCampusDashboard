@@ -17,6 +17,8 @@ import shutil
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
+from urllib.request import getproxies, proxy_bypass
 
 import requests
 
@@ -86,6 +88,12 @@ def download(url, path, expected=None):
     path.parent.mkdir(parents=True,exist_ok=True)
     temporary=path.with_suffix(path.suffix+'.partial')
     s=requests.Session(); s.trust_env=False
+    # Use the maintainer's existing Windows proxy for public GitHub assets.
+    # Keep campus/private data and the original TUF source on their own routes;
+    # enabling trust_env would also enable unrelated netrc authentication.
+    host=urlsplit(url).hostname
+    if os.name=='nt' and host=='github.com' and not proxy_bypass(host):
+        s.proxies={k:v for k,v in getproxies().items() if k in ('http','https')}
     if expected and temporary.exists() and digest(temporary)==expected:
         temporary.replace(path);return
     for attempt in range(3):
@@ -207,6 +215,10 @@ class Release:
             self.record('built',result)
             release=json.loads(gh('api',f'repos/{REPO}/releases/tags/{self.tag}'))
         self.assets=self.root/'assets'; self.assets.mkdir(exist_ok=True)
+        if self.state.get('build_run') and 'built' not in self.state['steps']:
+            run=json.loads(gh('api',f'repos/{REPO}/actions/runs/{self.state["build_run"]}'))
+            if run['conclusion']!='success':raise ValueError('Candidate build has not passed')
+            self.record('built',{'run_id':run['id'],'url':run['html_url'],'conclusion':'success'})
         remote={a['name']:a for a in release['assets']}
         download(remote['release-manifest.json']['browser_download_url'],self.assets/'release-manifest.json')
         self.manifest=read_json(self.assets/'release-manifest.json')
