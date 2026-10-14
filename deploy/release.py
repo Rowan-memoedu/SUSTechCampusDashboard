@@ -94,6 +94,11 @@ def download(url, path, expected=None):
     host=urlsplit(url).hostname
     if os.name=='nt' and host=='github.com' and not proxy_bypass(host):
         s.proxies={k:v for k,v in getproxies().items() if k in ('http','https')}
+        if not s.proxies:
+            # A NO_PROXY-only environment suppresses urllib's registry fallback.
+            from urllib import request
+            registered=getattr(request,'getproxies_registry',lambda:{})()
+            s.proxies={k:v for k,v in registered.items() if k in ('http','https')}
     if expected and temporary.exists() and digest(temporary)==expected:
         temporary.replace(path);return
     for attempt in range(3):

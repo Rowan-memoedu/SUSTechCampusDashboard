@@ -270,3 +270,17 @@ def test_public_github_download_reuses_existing_windows_proxy_only(tmp_path,monk
     release.download(url,tmp_path/'package.zip',hashlib.sha256(b'artifact').hexdigest())
     assert getattr(session,'proxies',{})==({'https':'http://127.0.0.1:7897'} if use_proxy else {})
     assert session.trust_env is False
+
+
+def test_no_proxy_only_environment_keeps_the_enabled_windows_proxy(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from urllib import request
+    import hashlib
+    session=SimpleNamespace(get=lambda *a,**k:DownloadResponse(200,[b'artifact']))
+    monkeypatch.setattr(release.requests,'Session',lambda:session)
+    monkeypatch.setattr(release,'os',SimpleNamespace(name='nt'))
+    monkeypatch.setattr(release,'proxy_bypass',lambda _:False)
+    monkeypatch.setattr(release,'getproxies',lambda:{'no':'localhost,127.0.0.1'})
+    monkeypatch.setattr(request,'getproxies_registry',lambda:{'http':'http://127.0.0.1:7897','https':'http://127.0.0.1:7897'},raising=False)
+    release.download('https://github.com/owner/repo/package.zip',tmp_path/'package.zip',hashlib.sha256(b'artifact').hexdigest())
+    assert session.proxies['https']=='http://127.0.0.1:7897' and not session.trust_env
