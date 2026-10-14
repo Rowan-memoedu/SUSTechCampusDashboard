@@ -28,6 +28,55 @@ def test_same_version_cannot_change_commit_or_platform_artifact_set(tmp_path):
         release.validate_manifest(m,'1.2.3','a'*40)
 
 
+def test_windows_scope_uses_exact_windows_assets_and_cannot_change_on_resume(tmp_path):
+    job=release.Release('1.2.3','a'*40,tmp_path,('windows-x86_64',))
+    job.record('frozen',{'source_commit':'a'*40})
+    with pytest.raises(ValueError,match='platform scope'):
+        release.Release('1.2.3','a'*40,tmp_path)
+    m=manifest();m['assets']=[a for a in m['assets'] if a['filename']!='linux-x86_64.zip']
+    release.validate_manifest(m,'1.2.3','a'*40,job.platforms)
+    with pytest.raises(ValueError,match='asset list'):
+        release.validate_manifest(m,'1.2.3','a'*40)
+
+
+def test_windows_release_requires_independent_ci_upgrade_and_real_owner(tmp_path,monkeypatch):
+    job=release.Release('1.2.3','a'*40,tmp_path,('windows-x86_64',));job.records={}
+    calls=[]
+    for name in ('freeze','candidate','publish','verify_public','public_upgrades','local_sync','local_ui'):
+        monkeypatch.setattr(job,name,lambda *a,_name=name,**k:calls.append(_name))
+    monkeypatch.setattr(job,'independent_windows',lambda *a:pytest.fail('Windows scope must not depend on the legacy VM'))
+    monkeypatch.setattr(release,'gh',lambda *a:'')
+    job.run(tmp_path,18765)
+    assert calls.index('candidate') < calls.index('public_upgrades') < calls.index('local_sync') < calls.index('local_ui')
+    assert job.state['status']=='complete' and job.state['platforms']==['windows-x86_64']
+
+
+def test_windows_public_upgrade_does_not_dispatch_linux(tmp_path,monkeypatch):
+    job=release.Release('1.2.3','a'*40,tmp_path,('windows-x86_64',))
+    job.state['previous']={'windows-x86_64.zip':{'sha256':'b'*64}}
+    calls=[]
+    monkeypatch.setattr(job,'workflow',lambda *a:calls.append(a) or {'conclusion':'success'})
+    job.public_upgrades()
+    assert calls[0][2]['platforms']=='windows' and 'previous_linux' not in calls[0][2]
+
+
+@pytest.mark.parametrize('alteration',['none','changed','removed','added'])
+def test_partial_publication_preserves_the_other_platform(alteration):
+    from types import SimpleNamespace
+    from feed_metadata import verify_preserved_targets
+    old=SimpleNamespace(to_dict=lambda:{'sha256':'old','version':'1.0.0'})
+    new=SimpleNamespace(to_dict=lambda:{'sha256':'new','version':'2.0.0'})
+    before={'windows-x86_64.zip':old,'linux-x86_64.zip':old}
+    after=dict(before,**{'windows-x86_64.zip':new})
+    if alteration=='changed':after['linux-x86_64.zip']=new
+    if alteration=='removed':del after['linux-x86_64.zip']
+    if alteration=='added':after['other.zip']=new
+    if alteration=='none':verify_preserved_targets(before,after,{'windows-x86_64.zip'})
+    else:
+        with pytest.raises(ValueError,match='Unselected platform'):
+            verify_preserved_targets(before,after,{'windows-x86_64.zip'})
+
+
 def test_resume_reuses_successful_workflow_and_never_dispatches_a_rebuild(tmp_path,monkeypatch):
     run={'id':42,'display_title':'Candidate v1.2.3','status':'completed','conclusion':'success','html_url':'https://github.com/fixture/42'}
     calls=[]
@@ -129,7 +178,7 @@ def test_owner_acceptance_rejects_uncommitted_or_rolled_back_selection(tmp_path,
 def test_resume_after_publication_needs_public_validation_but_no_republication(tmp_path,monkeypatch,public_changed):
     job=release.Release('1.2.3','a'*40,tmp_path);job.records={}
     job.record('feed_site',{'version':'1.2.3','source_commit':'a'*40,'feed_and_site_published':True})
-    for name in ('freeze','candidate','independent_windows','public_upgrades'):
+    for name in ('freeze','candidate','independent_windows','public_upgrades','local_ui'):
         monkeypatch.setattr(job,name,lambda *a,**k:None)
     def unexpected_publish():raise AssertionError('A completed publication must not reopen SSH')
     monkeypatch.setattr(job,'publish',unexpected_publish)

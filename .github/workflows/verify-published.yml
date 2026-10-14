@@ -13,8 +13,13 @@ on:
         required: true
         type: string
       previous_linux:
-        required: true
+        required: false
         type: string
+      platforms:
+        required: true
+        type: choice
+        default: windows
+        options: [windows, all]
 permissions:
   contents: read
 env:
@@ -25,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2025, ubuntu-24.04]
+        os: ${{ fromJSON(inputs.platforms == 'all' && '["windows-2025","ubuntu-24.04"]' || '["windows-2025"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:

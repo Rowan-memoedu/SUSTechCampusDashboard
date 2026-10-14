@@ -30,7 +30,11 @@ def promote(stage, expected_timestamp, root=Path('/var/www/sustech-campus-update
     _, incoming = verified_feed(lambda n: (stage/'metadata'/n).read_bytes(), trusted)
     assets = {a['filename']:a for a in manifest['assets']}
     targets = incoming['targets'].signed.targets
-    for name, target in targets.items():
+    changed={n for n in assets if n.endswith('.zip')}
+    if not changed or not changed <= {'windows-x86_64.zip','linux-x86_64.zip'}:
+        raise ValueError('Invalid release platform scope')
+    for name in changed:
+        target=targets[name]
         identity = target.unrecognized_fields['custom']
         if (identity['version'] != manifest['version'] or identity.get('source_commit') != manifest['source_commit']
                 or target.hashes['sha256'] != assets[name]['sha256']
@@ -42,11 +46,13 @@ def promote(stage, expected_timestamp, root=Path('/var/www/sustech-campus-update
     with (root/'.publish.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         _, current = verified_feed(lambda n: (root/'metadata'/n).read_bytes(), trusted)
+        from feed_metadata import verify_preserved_targets
+        verify_preserved_targets(current['targets'].signed.targets,targets,changed)
         already = all(current['targets'].signed.targets[n].hashes == t.hashes for n,t in targets.items())
         if not already:
             if digest(root/'metadata/timestamp.json') != expected_timestamp:
                 raise ValueError('Feed advanced; refresh metadata and retry the same artifacts')
-            for name, target in targets.items():
+            for name in changed:
                 archive = root/'targets'/name
                 previous = archive.with_name(digest(archive)+'.'+name)
                 if not previous.is_file():

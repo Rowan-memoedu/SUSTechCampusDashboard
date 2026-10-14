@@ -62,8 +62,9 @@ def test_duplicate_and_symlink_rejected(tmp_path):
         release_assets.audit_archive(path, '1.2.3', 'windows-x86_64')
 
 
-def test_allowlist_and_installer_hash(tmp_path):
-    for platform in ('windows-x86_64', 'linux-x86_64'):
+@pytest.mark.parametrize('platforms',[('windows-x86_64',),('windows-x86_64','linux-x86_64')])
+def test_allowlist_and_installer_hash(tmp_path,platforms):
+    for platform in platforms:
         bundle(tmp_path / (platform + '.zip'), platform)
     installer = tmp_path / 'SUSTechCampusDashboard-1.2.3-windows-x86_64-setup.exe'
     installer.write_bytes(b'fixture')
@@ -73,10 +74,10 @@ def test_allowlist_and_installer_hash(tmp_path):
                'sha256': release_assets.digest(installer), 'authenticode_signed': False}
     (tmp_path / 'installer.json').write_text(json.dumps(receipt))
     (tmp_path / 'private-log.txt').write_text('must not enter manifest')
-    manifest = release_assets.prepare(tmp_path, '1.2.3', 'a' * 40)
-    assert len(manifest['assets']) == 3
+    manifest = release_assets.prepare(tmp_path, '1.2.3', 'a' * 40, platforms)
+    assert len(manifest['assets']) == len(platforms)+1
     assert 'private-log' not in (tmp_path / 'SHA256SUMS').read_text()
     assert manifest['authenticode_signed'] is False
     installer.write_bytes(b'tampered')
     with pytest.raises(ValueError, match='receipt mismatch'):
-        release_assets.prepare(tmp_path, '1.2.3', 'a' * 40)
+        release_assets.prepare(tmp_path, '1.2.3', 'a' * 40, platforms)

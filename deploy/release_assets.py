@@ -66,14 +66,16 @@ def audit_archive(path, version, platform, commit=None):
             'sha256': digest(path), 'payload_sha256': release.get('payload_sha256')}
 
 
-def prepare(directory, version, commit):
+def prepare(directory, version, commit, platforms=('windows-x86_64', 'linux-x86_64')):
     directory = Path(directory)
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise ValueError('a stable semantic version is required')
     if not re.fullmatch(r'[0-9a-f]{40}', commit):
         raise ValueError('full source commit required')
+    if tuple(platforms) not in (('windows-x86_64',), ('windows-x86_64', 'linux-x86_64')):
+        raise ValueError('Unsupported release platforms')
     assets = [audit_archive(directory / (platform + '.zip'), version, platform, commit)
-              for platform in ('windows-x86_64', 'linux-x86_64')]
+              for platform in platforms]
     installer_name = f'SUSTechCampusDashboard-{version}-windows-x86_64-setup.exe'
     installer = directory / installer_name
     receipt = json.loads((directory / 'installer.json').read_text(encoding='utf-8'))
@@ -101,8 +103,10 @@ def main():
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--commit', required=True)
+    parser.add_argument('--platforms', choices=('windows', 'all'), default='all')
     args = parser.parse_args()
-    print(json.dumps(prepare(args.directory, args.version, args.commit)), flush=True)
+    platforms=('windows-x86_64',) if args.platforms=='windows' else ('windows-x86_64','linux-x86_64')
+    print(json.dumps(prepare(args.directory, args.version, args.commit, platforms)), flush=True)
 
 
 if __name__ == '__main__':

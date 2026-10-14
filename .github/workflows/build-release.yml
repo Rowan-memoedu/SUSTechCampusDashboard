@@ -8,6 +8,12 @@ on:
         description: Existing release tag (for example v0.5.1)
         required: true
         type: string
+      platforms:
+        description: Release platforms
+        required: true
+        type: choice
+        default: windows
+        options: [windows, all]
 
 permissions:
   contents: read
@@ -24,13 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-2025
-            platform: windows-x86_64
-            executable: campus-client.exe
-          - os: ubuntu-24.04
-            platform: linux-x86_64
-            executable: campus-client
+        include: ${{ fromJSON(inputs.platforms == 'all' && '[{"os":"windows-2025","platform":"windows-x86_64","executable":"campus-client.exe"},{"os":"ubuntu-24.04","platform":"linux-x86_64","executable":"campus-client"}]' || '[{"os":"windows-2025","platform":"windows-x86_64","executable":"campus-client.exe"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -142,8 +142,9 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_PLATFORMS: ${{ inputs.platforms }}
         run: |
-          python deploy/release_assets.py --directory release-assets/dist --version "${RELEASE_TAG#v}" --commit "$(git rev-parse HEAD)"
+          python deploy/release_assets.py --directory release-assets/dist --version "${RELEASE_TAG#v}" --commit "$(git rev-parse HEAD)" --platforms "$RELEASE_PLATFORMS"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: verified-downloads
@@ -160,4 +161,4 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag --generate-notes --latest=false --prerelease release-assets/dist/windows-x86_64.zip release-assets/dist/linux-x86_64.zip "release-assets/dist/SUSTechCampusDashboard-${RELEASE_TAG#v}-windows-x86_64-setup.exe" release-assets/dist/release-manifest.json release-assets/dist/SHA256SUMS
+          gh release create "$RELEASE_TAG" --verify-tag --generate-notes --latest=false --prerelease release-assets/dist/*.zip "release-assets/dist/SUSTechCampusDashboard-${RELEASE_TAG#v}-windows-x86_64-setup.exe" release-assets/dist/release-manifest.json release-assets/dist/SHA256SUMS

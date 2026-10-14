@@ -3,6 +3,6 @@
   open.addEventListener('click',event=>{
     status.hidden=false;
     if(!/Windows/i.test(navigator.userAgent)){event.preventDefault();status.textContent='请在已安装组件的 Windows 电脑上打开，或使用自己的 Linux 运行端。';return;}
-    status.textContent='已在新标签页打开本机地址。若无法连接或提示需要访问凭证，请从桌面或开始菜单打开“南科大校园面板”。';
+    status.textContent='请在浏览器提示中允许打开“南科大校园面板”。组件准备就绪后会自动打开页面；若没有响应，可从桌面或开始菜单打开同名应用。';
   });
 })();

@@ -1,6 +1,6 @@
 # 校园面板开发边界
 
-- 每次功能更新必须走 `python deploy/release.py --version <版本> --commit <完整提交>` 的统一发布入口。固定源码后每平台只构建一次，候选在独立实例验收，复用同一批资产发布 GitHub、静态页和原 TUF 源，日常本机再通过正式更新器安装。禁止用候选安装器覆盖日常实例作为交付；源码修改后必须增加版本号，不能替换已发布版本的文件。只有批次 `state.json` 为 `complete`，且本机、正式源、GitHub 的版本、源码提交和平台产物哈希实测一致，才能报告更新完成。失败保留批次并从失败阶段继续；不得用重建同版本包替代续跑。
+- 每次功能更新必须走 `python deploy/release.py --version <版本> --commit <完整提交>` 的统一发布入口。2026-10-14 用户将当前交付范围限定为 Windows：默认仅构建和发布 Windows，保留已有 Linux TUF 目标；独立 Windows 标准用户 CI 验证安装、真实旧版升级和数据保留，日常本机通过正式更新器安装并验证真实页面。当前不以 Linux 或旧 Windows 10 虚拟机作为完成门槛；恢复双平台范围须由用户明确要求，使用 `--platforms all`。固定源码后每平台只构建一次，GitHub、静态页、TUF 和本机复用同一批文件。禁止用候选安装器覆盖日常实例作为交付；源码修改后增加版本号，不能替换已发布文件。只有 `state.json` 为 `complete`，且本机、正式源、GitHub 的版本、源码提交、平台产物哈希和本机页面均实测通过，才能报告完成。失败保留批次并续跑，不重建同版本包。
 
 - 当前范围以 docs/WEB-HOSTED-PLAN.md 为准；新 Thread 从 docs/LOCAL-MODE-HANDOFF.md 开始。迁移与托管退役见 docs/LOCAL-MODE-ACCEPTANCE.md，当前分发、兼容性和独立 Windows 实测状态以 docs/RELEASE-0.4.3-ACCEPTANCE.md 为准，不能以同账号重装或 fixture 替代独立 Windows 验收。docs/RELEASE-0.4.1-ACCEPTANCE.md 与 docs/HOSTED-PHASE1.md 保留历史证据，不能把旧部署步骤当成恢复托管的授权。
 - 一个用户、一个进程、一个私密目录；上游认证有进程全局状态，禁止逐请求切换账号。复用 Flask 页面、业务适配器和 SQLite 账本，保持本机与用户自有 Linux 服务器兼容。
@@ -12,7 +12,7 @@
 - 写入学校仅对应用户真实需求；测试用 fixture，不提交测试作业、不占用场地、不选退课或打印。不确定回执保留待核对，迁移/更新不重放。旧讨论间监控保持 410 和停用。
 - 本机更新复用现有 TUF，默认自动检查、用户点击后自动安装。保留旧版本升级路径、原信任根、静态源与续签；安装器不另造更新系统，不能宣称浏览器可绕过首次安装确认。
 - 发布页开发使用 Hallmark 新页面流程，本机更新 UI 按现有组件范围；不扩大为无关全站改版。只读截图/检查优先，HTTP 200 不等于界面验收。
-- 修改前检查工作树与线上版本，保留并行改动。新版在 Windows 和 Linux 跑 pytest，保留个人服务器的真实 nginx 上传回归；分发包和全新安装另行验证。
+- 修改前检查工作树与线上版本，保留并行改动。当前 Windows 范围在独立标准用户运行 pytest，核验分发包和全新安装；Linux/nginx 的既有证据保留，恢复双平台交付时再运行相应门禁。
 - 本机 Python：D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe；测试/构建缓存指定 D:\Caches，产物进入 D:\Artifacts\SUSTechCampusDashboard。真实数据与隔离验收目录分开。
 - 程序构建复用 deploy/build_client.py，更新/续签按 UPDATING.md。续签现役入口为服务器 systemd；根／targets 私钥只在本机，不上传服务器，不恢复旧 Windows／Codex 调度。deploy/pack_hosted.py 等旧托管脚本仅按迁移/维护需要保留，不用其重新部署运营者业务服务。
 - 服务器清理按总计划精确清单执行：先一致性备份、共享引用迁移和 D 盘恢复核验，再删除项目独占资源。retire_trial.py 会重建托管服务，不能充当最终退役工具。

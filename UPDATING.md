@@ -65,22 +65,24 @@ Linux 执行主机用 systemd `LoadCredentialEncrypted` 提供 `sustech-cas` 和
 
 ### 统一入口
 
-自 0.5.9 起，常规更新只使用以下入口，执行全部六步；中途失败用相同参数继续：
+自 0.5.10 起，按 2026-10-14 用户确认的 Windows 范围，常规更新只使用以下入口；中途失败用相同参数继续：
 
 ```powershell
-python deploy/release.py --version 0.5.9 --commit <40位源码提交>
+python deploy/release.py --version <新版本> --commit <40位源码提交>
 ```
 
 1. 提交版本号与源码，固定标签和完整提交；现有标签不能移到其他提交。源码修改后增加版本号。并行任务未提交的文件不进入 CI 构建。
-2. GitHub Actions 在 Windows/Linux 各构建一次并验收，包内记录提交与逐文件清单。已有候选 Release 直接下载并校验；同一批次失败仅续跑失败的 CI job，正式晋升不触发构建。
-3. 候选安装器先在独立 Windows 标准用户虚拟机验收，基础盘只读、差分盘独立；原账号与资料做保留核验。日常实例继续使用原正式版。以前仍适用的首次 CAS、系统启动证据保留，新版本必须验证实际安装、运行文件与身份。
-4. 本机原离线密钥签发这批 ZIP；上传前逐文件核对远端哈希，续跑跳过已完整传输的文件。原服务器发布锁串联 TUF 与静态页。公共地址重新读取严格签名元数据、双平台完整包和 Windows 安装器，逐一核对哈希。GitHub 的候选原资产晋升稳定版。
-5. 双平台独立 CI 以及 Windows 10 现有账号实例从旧公开包执行真实签名升级；日常本机最后通过现有正式更新器安装，核对实际文件、凭据、原附件和操作状态。
-6. 本机验收等待更新器同时提交版本指针和安装成功记录，再核对真实运行文件；不能把新后台刚开始响应当作提交完成。`D:\Artifacts\SUSTechCampusDashboard\releases\v<版本>\state.json` 仅在以上全部通过后标记 `complete`。`--until candidate` / `--until published` 只用于查看中间结果，状态仍为未完成；正常交付不加此参数。
+2. GitHub Actions 构建一次 Windows 包，包内记录提交与逐文件清单。已有候选 Release 直接下载并校验；同一批次失败仅续跑失败的 CI job，正式晋升不触发构建。
+3. 独立 Windows 标准用户 CI 运行完整回归、页面验收、真实安装注册、卸载及数据保留；日常实例继续使用原正式版。以前仍适用的首次 CAS、独立 Windows 10 证据保留。
+4. 本机原离线密钥签发该 Windows ZIP；已有 Linux 目标保持原版本和哈希。上传前逐文件核对远端哈希，续跑跳过完整文件。原服务器发布锁串联 TUF 与静态页，公开完整下载 Windows ZIP 和安装器核对哈希，GitHub 原资产晋升稳定版。
+5. 独立 Windows 标准用户 CI 从旧公开包执行真实签名升级；日常本机最后通过现有正式更新器安装，核对实际文件、凭据、原附件和操作状态。
+6. 本机验收等待更新器同时提交版本指针和成功记录，再核对运行文件；使用独立无界面 Chrome 读取实际本机页面和公共页面，核验打开入口、窄屏及脚本错误。`D:\Artifacts\SUSTechCampusDashboard\releases\v<版本>\state.json` 仅在全部通过后标记 `complete`。`--until candidate` / `--until published` 只用于查看中间结果，正常交付不加此参数。
+
+默认参数为 `--platforms windows`，不会构建、发布或验收新版 Linux。只有用户明确恢复双平台交付时使用 `--platforms all`；该范围还运行 Linux 和旧独立 Windows 10 虚拟机门禁。批次平台范围固定，不能在续跑时悄悄改变。
 
 续跑时，已经记录成功的公开发布只从公开地址重新核验，不重复进入 SSH 发布阶段；公开身份发生变化时停止，不能覆盖别的正式版本。HTTP 大文件传输中断会保留部分文件并尝试断点续传；仍须通过完整 SHA256 才接受文件。
 
-维护者前置环境为现有 GitHub CLI 登录、SSH 主机密钥、原 DPAPI 发布密钥与独立 Windows 验收代理。它们只在维护端使用，不进入分发包。公开文件清单位于 GitHub Release 与 `/app/downloads/release-manifest.json`；同一版本的源码提交、平台 ZIP 哈希、安装器哈希必须一致。包内 `release-files.json` 用来核验解压后的真实运行文件，不能用 EXE 的哈希替代 ZIP 哈希。
+维护者前置环境为现有 GitHub CLI 登录、SSH 主机密钥、原 DPAPI 发布密钥与 Google Chrome。它们只在维护端使用，不进入分发包。公开文件清单位于 GitHub Release 与 `/app/downloads/release-manifest.json`；同一版本的源码提交、平台 ZIP 哈希、安装器哈希必须一致。包内 `release-files.json` 用来核验解压后的真实运行文件，不能用 EXE 的哈希替代 ZIP 哈希。
 
 原 TUF 根、自动续签、旧版客户端和回滚机制继续使用。下面的签名/上传脚本是统一入口调用的底层组件，仅供恢复排障，不再作为三套独立的日常发布步骤。跨站点发布存在短暂中间状态；未通过公共回读与本机验收时整个批次保持未完成，原包及原数据保留。
 

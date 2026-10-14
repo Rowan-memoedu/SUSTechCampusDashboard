@@ -51,3 +51,10 @@ def reject_rollback(current, previous):
             raise ValueError("Public feed is older than the publisher mirror")
         if a.signed.version == b.signed.version and a.signed_bytes != b.signed_bytes:
             raise ValueError("Same metadata version has different content")
+
+
+def verify_preserved_targets(current, incoming, changed):
+    """A platform-scoped release cannot remove or change other platforms."""
+    for name in (set(current) | set(incoming)) - set(changed):
+        if name not in current or name not in incoming or current[name].to_dict() != incoming[name].to_dict():
+            raise ValueError('Unselected platform target changed: ' + name)

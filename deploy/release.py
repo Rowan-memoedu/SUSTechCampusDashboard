@@ -118,12 +118,12 @@ def download(url, path, expected=None):
     temporary.replace(path)
 
 
-def validate_manifest(manifest, version, commit):
-    names={'windows-x86_64.zip','linux-x86_64.zip',f'SUSTechCampusDashboard-{version}-windows-x86_64-setup.exe'}
+def validate_manifest(manifest, version, commit, platforms=('windows-x86_64','linux-x86_64')):
+    names={p+'.zip' for p in platforms}|{f'SUSTechCampusDashboard-{version}-windows-x86_64-setup.exe'}
     if manifest.get('version')!=version or manifest.get('source_commit')!=commit:
         raise ValueError('Release identity differs from the frozen source')
     assets=manifest.get('assets',[])
-    if len(assets)!=3 or {a.get('filename') for a in assets}!=names:
+    if len(assets)!=len(names) or {a.get('filename') for a in assets}!=names:
         raise ValueError('Unexpected release asset list')
     if any(not re.fullmatch('[a-f0-9]{64}', a.get('sha256','')) or a.get('size',0)<=0 for a in assets):
         raise ValueError('Invalid release digest')
@@ -131,16 +131,22 @@ def validate_manifest(manifest, version, commit):
 
 
 class Release:
-    def __init__(self, version, commit, output=DEFAULT_OUTPUT):
+    def __init__(self, version, commit, output=DEFAULT_OUTPUT, platforms=('windows-x86_64','linux-x86_64')):
         if not re.fullmatch(r'\d+\.\d+\.\d+',version) or not re.fullmatch('[a-f0-9]{40}',commit):
             raise ValueError('A version and full source commit are required')
         self.version,self.commit,self.tag=version,commit,'v'+version
+        self.platforms=tuple(platforms)
+        if self.platforms not in (('windows-x86_64',),('windows-x86_64','linux-x86_64')):
+            raise ValueError('Unsupported release platforms')
+        self.scope='windows' if len(self.platforms)==1 else 'all'
         self.root=Path(output)/self.tag; self.root.mkdir(parents=True,exist_ok=True)
         self.path=self.root/'state.json'
         self.state=read_json(self.path) if self.path.exists() else {
-            'schema':1,'version':version,'source_commit':commit,'status':'incomplete','steps':{}}
+            'schema':1,'version':version,'source_commit':commit,'platforms':list(self.platforms),'status':'incomplete','steps':{}}
         if (self.state['version'],self.state['source_commit'])!=(version,commit):
             raise ValueError('This version already belongs to a different source commit')
+        if tuple(self.state.get('platforms',('windows-x86_64','linux-x86_64'))) != self.platforms:
+            raise ValueError('This release batch has a different platform scope')
 
     def record(self, stage, result):
         self.state['steps'][stage]=dict(result,verified_at=datetime.now(timezone.utc).isoformat())
@@ -197,14 +203,14 @@ class Release:
             release=json.loads(gh('api',f'repos/{REPO}/releases/tags/{self.tag}'))
         except RuntimeError as exc:
             if '404' not in str(exc): raise
-            result=self.workflow('build-release.yml','Candidate '+self.tag,{'tag':self.tag},'build_run')
+            result=self.workflow('build-release.yml','Candidate '+self.tag,{'tag':self.tag,'platforms':self.scope},'build_run')
             self.record('built',result)
             release=json.loads(gh('api',f'repos/{REPO}/releases/tags/{self.tag}'))
         self.assets=self.root/'assets'; self.assets.mkdir(exist_ok=True)
         remote={a['name']:a for a in release['assets']}
         download(remote['release-manifest.json']['browser_download_url'],self.assets/'release-manifest.json')
         self.manifest=read_json(self.assets/'release-manifest.json')
-        self.records=validate_manifest(self.manifest,self.version,self.commit)
+        self.records=validate_manifest(self.manifest,self.version,self.commit,self.platforms)
         for name,record in self.records.items():
             if remote[name]['size']!=record['size'] or remote[name].get('digest')!='sha256:'+record['sha256']:
                 raise ValueError('GitHub asset receipt differs: '+name)
@@ -234,7 +240,8 @@ class Release:
         from publish_release import publish
         blobs,roles=verified_feed(get_public)
         current=roles['targets'].signed.targets
-        already=all(current[n].hashes['sha256']==self.records[n]['sha256'] for n in current)
+        archives=[p+'.zip' for p in self.platforms]
+        already=all(n in current and current[n].hashes['sha256']==self.records[n]['sha256'] for n in archives)
         if not self.state.get('previous'):
             if already: raise ValueError('Missing original upgrade baseline; recover the existing batch journal')
             self.state['previous']={n:dict(version=t.unrecognized_fields['custom']['version'],sha256=t.hashes['sha256']) for n,t in current.items()}
@@ -242,21 +249,21 @@ class Release:
         stage=self.root/'publication'; stage.mkdir(exist_ok=True)
         if not already:
             save_metadata(stage/'metadata',blobs)
-            publish(stage,[self.assets/'windows-x86_64.zip',self.assets/'linux-x86_64.zip'])
+            publish(stage,[self.assets/n for n in archives])
         else: save_metadata(stage/'metadata',blobs)
-        for name in ('windows-x86_64.zip','linux-x86_64.zip'):
+        for name in archives:
             target=stage/name
             if not target.exists(): os.link(self.assets/name,target)
             if digest(target)!=self.records[name]['sha256']: raise ValueError('Staging artifact changed')
         site=stage/'site'
         if not site.exists():
             installer=next(self.assets/n for n in self.records if n.endswith('.exe'))
-            build(installer,self.assets/'linux-x86_64.zip',site)
+            build(installer,self.assets/'linux-x86_64.zip' if 'linux-x86_64' in self.platforms else None,site)
         elif read_json(site/'release-manifest.json')!=self.manifest:
             raise ValueError('Staged site belongs to different artifacts')
         remote='/tmp/sustech-release-'+self.version+'-'+self.commit[:12]
         files=sorted(p for folder in (stage/'metadata',site) for p in folder.rglob('*') if p.is_file())
-        files += [stage/'windows-x86_64.zip',stage/'linux-x86_64.zip']
+        files += [stage/n for n in archives]
         directories=sorted({remote+'/'+p.relative_to(stage).parent.as_posix() for p in files})
         command(['ssh',*SSH_OPTIONS,SSH_HOST,'mkdir -p '+' '.join(directories)])
         for source in files:upload_file(source,remote+'/'+source.relative_to(stage).as_posix())
@@ -269,7 +276,7 @@ class Release:
     def verify_public(self, require_stable=False):
         # Strict client validation includes expiry, signature, rollback and both platform targets.
         client=UpdateManager(self.root/'public-client')._client(); client.refresh()
-        for platform in ('windows-x86_64','linux-x86_64'):
+        for platform in self.platforms:
             name=platform+'.zip'; target=client.get_targetinfo(name)
             if not target or target.hashes['sha256']!=self.records[name]['sha256']:
                 raise ValueError('Public TUF target differs')
@@ -278,11 +285,19 @@ class Release:
                 raise ValueError('Public TUF identity differs')
             download(RELEASE_URL+'/targets/'+target.hashes['sha256']+'.'+name,
                 self.root/'public-readback'/name,target.hashes['sha256'])
+        for name,previous in self.state.get('previous',{}).items():
+            if name in self.records:continue
+            target=client.get_targetinfo(name)
+            if (not target or target.hashes['sha256']!=previous['sha256']
+                    or target.unrecognized_fields['custom']['version']!=previous['version']):
+                raise ValueError('Unselected public platform changed: '+name)
         s=requests.Session();s.trust_env=False
         r=s.get(SITE+'downloads/release-manifest.json',timeout=30);r.raise_for_status()
         if r.json()!=self.manifest: raise ValueError('Public site manifest differs')
         r=s.get(SITE,timeout=30);r.raise_for_status()
         if '<strong>'+self.version+'</strong>' not in r.text: raise ValueError('Public page version differs')
+        if 'id="open-local" class="button secondary" href="sustech-campus://open"' not in r.text:
+            raise ValueError('Public entry does not launch the installed Windows app')
         installer=next(r for n,r in self.records.items() if n.endswith('.exe'))
         download(SITE+'downloads/'+installer['filename'],self.root/'public-readback'/installer['filename'],installer['sha256'])
         release=json.loads(gh('api',f'repos/{REPO}/releases/tags/{self.tag}'))
@@ -291,13 +306,15 @@ class Release:
             if asset['name'] in self.records and asset.get('digest')!='sha256:'+self.records[asset['name']]['sha256']:
                 raise ValueError('GitHub binary changed during promotion')
         self.record('public',{'version':self.version,'source_commit':self.commit,'strict_tuf':True,
-            'public_hashes_verified':True,'github_stable':not release['prerelease'] and not release['draft']})
+            'public_hashes_verified':True,'platforms':list(self.platforms),
+            'windows_launch_link':True,'github_stable':not release['prerelease'] and not release['draft']})
 
     def public_upgrades(self):
         previous=self.state['previous']
-        result=self.workflow('verify-published.yml','Published upgrade '+self.tag,
-            {'tag':self.tag,'commit':self.commit,'previous_windows':previous['windows-x86_64.zip']['sha256'],
-             'previous_linux':previous['linux-x86_64.zip']['sha256']},'upgrade_run')
+        inputs={'tag':self.tag,'commit':self.commit,'platforms':self.scope,
+                'previous_windows':previous['windows-x86_64.zip']['sha256']}
+        if 'linux-x86_64' in self.platforms:inputs['previous_linux']=previous['linux-x86_64.zip']['sha256']
+        result=self.workflow('verify-published.yml','Published upgrade '+self.tag,inputs,'upgrade_run')
         self.record('public_upgrades',result)
 
     def local_sync(self, port):
@@ -305,12 +322,16 @@ class Release:
         result=verify(self.manifest,self.root,port)
         self.record('local',result)
 
+    def local_ui(self, port):
+        from verify_owner_ui import verify
+        self.record('owner_ui',verify(self.version,self.root,port))
+
     def run(self, agent_directory, port, until=None):
         try:
             self.state['status']='incomplete';save(self.path,self.state)
             self.freeze();self.candidate()
             if until=='candidate':return
-            self.independent_windows(agent_directory,'candidate')
+            if self.scope=='all':self.independent_windows(agent_directory,'candidate')
             published=self.state['steps'].get('feed_site',{})
             if not (published.get('version')==self.version and published.get('source_commit')==self.commit
                     and published.get('feed_and_site_published') is True):
@@ -318,11 +339,13 @@ class Release:
             # A recorded publication is revalidated from public addresses. Do not
             # reopen SSH or republish it when only a later acceptance step failed.
             self.verify_public()
-            self.public_upgrades();self.independent_windows(agent_directory,'upgrade')
+            self.public_upgrades()
+            if self.scope=='all':self.independent_windows(agent_directory,'upgrade')
             gh('release','edit',self.tag,'--repo',REPO,'--prerelease=false','--latest')
             self.verify_public(require_stable=True)
             if until=='published':return
             self.local_sync(port)
+            self.local_ui(port)
             self.verify_public(require_stable=True)
             self.state['status']='complete';self.state['completed_at']=datetime.now(timezone.utc).isoformat()
             save(self.path,self.state);emit('complete',version=self.version,source_commit=self.commit,
@@ -340,12 +363,15 @@ def main():
     p.add_argument('--windows-agent-dir',type=Path,
         default=Path('D:/Artifacts/SUSTechCampusDashboard/full-flow-20261010/windows-vm'))
     p.add_argument('--port',type=int,default=18765)
+    p.add_argument('--platforms',choices=('windows','all'),default='windows',
+                   help='Windows uses independent standard-user CI and the real owner instance; all also requires the legacy VM')
     p.add_argument('--until',choices=('candidate','published'),help='Stop incomplete for inspection; rerun without this option to finish')
     a=p.parse_args()
     lock=Path('D:/AppData/SUSTechCampusPublisher/unified-release.lock')
     lock.parent.mkdir(parents=True,exist_ok=True)
     with exclusive_file(lock):
-        Release(a.version,a.commit,a.output).run(a.windows_agent_dir,a.port,a.until)
+        platforms=('windows-x86_64',) if a.platforms=='windows' else ('windows-x86_64','linux-x86_64')
+        Release(a.version,a.commit,a.output,platforms).run(a.windows_agent_dir,a.port,a.until)
 
 
 if __name__=='__main__':main()
