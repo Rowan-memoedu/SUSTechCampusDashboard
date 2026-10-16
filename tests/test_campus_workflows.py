@@ -254,3 +254,27 @@ def test_resource_proxy_preserves_filename_without_upstream_disposition(monkeypa
     response.close()
     assert app._bb_lock.acquire(blocking=False)
     app._bb_lock.release()
+
+
+@pytest.mark.parametrize('direct',[False,True])
+@pytest.mark.parametrize('content',[b'%PDF-1.7\nsubmitted-pdf',b'<html>login page</html>'])
+def test_submitted_pdf_preview_validates_bytes_and_releases_source(monkeypatch,direct,content):
+    from sustech_dashboard import app
+    monkeypatch.setattr(app,'CLOUD',False)
+    monkeypatch.setattr(app,'direct_downloads',lambda:direct)
+    closed=[]
+    upstream=SimpleNamespace(headers={'Content-Type':'application/octet-stream'},iter_content=lambda n:iter([content,b'END']),close=lambda:closed.append(True))
+    monkeypatch.setattr(app,'Blackboard',lambda:SimpleNamespace(get=lambda *a,**kw:upstream))
+    client=app.create_app().test_client()
+    query={'path':'/webapps/assignment/download?file_id=1','name':'submitted.pdf','preview':'1'}
+    response=client.get('/api/blackboard-resource',query_string=query)
+    if content.startswith(b'%PDF-'):
+        assert response.status_code==200 and response.data==content+b'END'
+        assert response.mimetype=='application/pdf'
+        assert response.headers['Content-Disposition'].startswith('inline;')
+    else:
+        assert response.status_code==400 and b'<html>' not in response.data
+    response.close()
+    assert closed==[True]
+    assert app._bb_lock.acquire(blocking=False)
+    app._bb_lock.release()

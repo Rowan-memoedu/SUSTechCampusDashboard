@@ -325,7 +325,8 @@ def create_app(runtime=None) -> Flask:
             local_request()
             from .blackboard_work import resource_path
             path=resource_path(request.args.get('path',''))
-            if direct_downloads():
+            preview=request.args.get('preview')=='1'
+            if direct_downloads() and not preview:
                 from .provider import _api_path
                 return redirect(_api_path(path), code=303)
             if not _bb_lock.acquire(timeout=15):return jsonify({'error':'Blackboard 正在读取，请稍后重试'}),503
@@ -339,15 +340,28 @@ def create_app(runtime=None) -> Flask:
                     closed=True
                     upstream.close();_bb_lock.release()
             def chunks():
-                try:yield from upstream.iter_content(65536)
+                try:
+                    if preview:yield first
+                    yield from remaining
                 finally:close_upstream()
+            remaining=upstream.iter_content(65536)
+            if preview:
+                try:first=next(remaining,b'')
+                except Exception:
+                    close_upstream();raise
+                if not first.startswith(b'%PDF-'):
+                    close_upstream()
+                    return jsonify(error='此附件未返回有效的 PDF，请核对 Blackboard 登录与文件权限'),400
             mime=upstream.headers.get('Content-Type','application/octet-stream')
+            if preview:mime='application/pdf'
             response=Response(stream_with_context(chunks()),mimetype=mime)
             disposition=upstream.headers.get('Content-Disposition','attachment')
             response.headers['Content-Disposition']=disposition if disposition.lower().startswith('attachment') or mime.startswith(('image/png','image/jpeg','image/gif','image/webp')) else 'attachment'
             if request.args.get('name'):
                 response.headers['Content-Disposition']="attachment; filename*=UTF-8''"+quote(safe_name(request.args['name']),safe='')
-            response.headers['Content-Security-Policy']="sandbox; default-src 'none'"
+            if preview:
+                response.headers['Content-Disposition']="inline; filename*=UTF-8''"+quote(safe_name(request.args.get('name') or 'preview.pdf'),safe='')
+            else:response.headers['Content-Security-Policy']="sandbox; default-src 'none'"
             response.headers['X-Content-Type-Options']='nosniff'
             response.headers['Cache-Control']='private, no-store'
             response.call_on_close(close_upstream)

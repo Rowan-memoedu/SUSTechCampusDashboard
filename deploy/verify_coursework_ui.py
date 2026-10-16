@@ -49,7 +49,7 @@ def main():
                  'received': 2, 'retained': 1, 'errors': ['attempts_unavailable']}]
     state = dict(updated_at=stamp, tis={}, warnings=[], errors={}, assignments=tasks,
                  assignment_coverage=coverage)
-    report = {'school_writes': 0, 'errors': [], 'widths': [320, 375, 768, 1280]}
+    report = {'school_writes': 0, 'errors': [], 'widths': [320, 375, 414, 768, 1280]}
     update = {'state':'current','available':False,'latest':'0.5.5','message':'已与正式版本同步'}
     def api(route):
         if route.request.url==origin+'/api/assignment/preview-pdf':
@@ -60,7 +60,9 @@ def main():
             return route.fulfill(json=state)
         if path.startswith('/api/assignment/'):
             task = next(t for t in tasks if path.endswith('/' + t['content_id']))
-            return route.fulfill(json=dict(task, column={}, content={}, attempts=[],
+            return route.fulfill(json=dict(task, column={}, content={}, attempts=[{'status':'NeedsGrading','review_files':[
+                {'name':'已提交.PDF','url':origin+'/api/blackboard-resource?path=%2Fwebapps%2Fassignment%2Fdownload%3Ffile_id%3Dfixture&name=submitted.PDF'},
+                {'name':'说明.txt','url':origin+'/api/blackboard-resource?path=%2Fwebapps%2Fassignment%2Fdownload%3Ffile_id%3Dfixture&name=notes.txt'}]}],
                 attachments=[], description_html='<p>隔离样例要求</p>', warnings=[],
                 can_submit=True, official_url='https://example.org/assignment'))
         if path == '/api/instance':
@@ -73,7 +75,7 @@ def main():
         with browser_context() as context:
             assert context.request.post(origin + '/auth/unlock', headers={'Origin': origin},
                                         data={'token': runtime.token}).status == 200
-            context.route(re.compile(re.escape(origin)+r'/api/(?!assignment/preview-pdf(?:$|\?))'), api)
+            context.route(re.compile(re.escape(origin)+r'/api/(?!assignment/preview-pdf(?:$|\?)|blackboard-resource(?:$|\?))'), api)
             page = context.new_page()
             page.on('pageerror', lambda error: report['errors'].append(str(error)))
             page.goto(origin)
@@ -89,6 +91,12 @@ def main():
             import io
             from pypdf import PdfWriter
             pdf=io.BytesIO(); writer=PdfWriter();writer.add_blank_page(width=595,height=842);writer.write(pdf)
+            from types import SimpleNamespace
+            from sustech_dashboard import app as app_module
+            def school_file(path,**kwargs):
+                assert path=='/webapps/assignment/download?file_id=fixture'
+                return SimpleNamespace(headers={'Content-Type':'application/octet-stream'},iter_content=lambda n:iter([pdf.getvalue()]),close=lambda:None)
+            app_module.Blackboard=lambda:SimpleNamespace(get=school_file)
             selected=page.locator('.assignment').nth(2)
             picker=selected.locator('input[type=file]')
             picker.set_input_files([{'name':'作业.PDF','mimeType':'application/octet-stream','buffer':pdf.getvalue()},
@@ -109,6 +117,15 @@ def main():
             assert 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css' in opened.value.content()
             opened.value.close()
             report['pdf_preview']={'new_tab':True,'local_only':True,'inline_pdf':True,'native_reader':True,'school_writes':0}
+            submitted=selected.get_by_role('link',name='预览已提交的 已提交.PDF',exact=True)
+            assert selected.get_by_role('link',name='预览已提交的',exact=False).count()==1
+            with context.expect_event('response',predicate=lambda r:'/api/blackboard-resource?' in r.url and 'preview=1' in r.url) as reviewed:
+                with page.expect_popup() as opened:
+                    submitted.click()
+            assert reviewed.value.status==200 and reviewed.value.headers['content-type']=='application/pdf'
+            assert reviewed.value.headers['content-disposition'].startswith('inline;')
+            opened.value.wait_for_load_state('domcontentloaded');opened.value.close()
+            report['submitted_pdf_preview']={'new_tab':True,'inline_pdf':True,'preserved_downloads':selected.get_by_role('link',name='下载',exact=True).count()==2,'school_writes':0}
             assert '课程日历' in page.locator('.assignment').nth(2).inner_text()
             assert '最新一次是草稿' in page.locator('.assignment').nth(2).inner_text()
             page.locator('#assignment-coverage summary').click()
