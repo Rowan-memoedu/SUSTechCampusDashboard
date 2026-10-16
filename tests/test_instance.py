@@ -43,6 +43,29 @@ def test_no_account_data_before_local_unlock_and_host_origin_validation(instance
     assert client.get("/api/status", headers=headers).json["assignments"][0]["private"] == "canary-secret"
 
 
+def test_uploaded_pdf_preview_is_private_inline_and_requires_form_csrf(instance):
+    import io
+    rt, client, headers = instance
+    path='/api/assignment/preview-pdf'
+    pdf=b'%PDF-1.7\nprivate-preview-canary'
+    def payload(token=''):
+        return {'csrf_token':token,'file':(io.BytesIO(pdf),'homework.pdf')}
+    assert client.post(path,data=payload(),headers=headers).status_code==401
+    unlock(rt,client,headers)
+    rt.configured.set()
+    csrf=re.search(r'const roomCsrf="([^"]+)"',client.get('/',headers=headers).text)[1]
+    assert client.post(path,data=payload(),headers=headers).status_code==400
+    assert client.post(path,data=payload(csrf),headers={**headers,'Origin':'https://evil.example'}).status_code==400
+    for origin in (headers['Origin'],'null'):
+        response=client.post(path,data=payload(csrf),headers={**headers,'Origin':origin})
+        assert response.status_code==200 and response.data==pdf
+        assert response.mimetype=='application/pdf'
+        assert response.headers['Content-Disposition'].startswith('inline;')
+        assert response.headers['Cache-Control']=='no-store'
+    invalid={'csrf_token':csrf,'file':(io.BytesIO(b'<html>not pdf</html>'),'fake.pdf')}
+    assert client.post(path,data=invalid,headers=headers).status_code==400
+
+
 def test_first_login_validates_once_no_account_switch_or_password_echo(instance, monkeypatch):
     rt, client, headers = instance
     unlock(rt, client, headers)

@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import threading
@@ -51,6 +52,9 @@ def main():
     report = {'school_writes': 0, 'errors': [], 'widths': [320, 375, 768, 1280]}
     update = {'state':'current','available':False,'latest':'0.5.5','message':'已与正式版本同步'}
     def api(route):
+        if route.request.url==origin+'/api/assignment/preview-pdf':
+            return route.continue_()
+        assert route.request.method=='GET', 'UI acceptance must not submit to school'
         path = route.request.url.split(origin, 1)[-1]
         if path == '/api/status':
             return route.fulfill(json=state)
@@ -58,7 +62,7 @@ def main():
             task = next(t for t in tasks if path.endswith('/' + t['content_id']))
             return route.fulfill(json=dict(task, column={}, content={}, attempts=[],
                 attachments=[], description_html='<p>隔离样例要求</p>', warnings=[],
-                can_submit=False, official_url='https://example.org/assignment'))
+                can_submit=True, official_url='https://example.org/assignment'))
         if path == '/api/instance':
             return route.fulfill(json={'configured': True, 'managed': True, 'mode': 'local',
                 'version': '0.5.5', 'update': update})
@@ -69,7 +73,7 @@ def main():
         with browser_context() as context:
             assert context.request.post(origin + '/auth/unlock', headers={'Origin': origin},
                                         data={'token': runtime.token}).status == 200
-            context.route('**/api/**', api)
+            context.route(re.compile(re.escape(origin)+r'/api/(?!assignment/preview-pdf(?:$|\?))'), api)
             page = context.new_page()
             page.on('pageerror', lambda error: report['errors'].append(str(error)))
             page.goto(origin)
@@ -81,6 +85,31 @@ def main():
             assert '缓存' in page.locator('.assignment').nth(1).inner_text()
             page.locator('.assignment').nth(2).locator('summary').click()
             page.get_by_text('截止时间来源：评分列 · 具体时刻', exact=True).wait_for()
+            # Preview echoes to the user's instance, never to Blackboard.
+            import io
+            from pypdf import PdfWriter
+            pdf=io.BytesIO(); writer=PdfWriter();writer.add_blank_page(width=595,height=842);writer.write(pdf)
+            selected=page.locator('.assignment').nth(2)
+            picker=selected.locator('input[type=file]')
+            picker.set_input_files([{'name':'作业.PDF','mimeType':'application/octet-stream','buffer':pdf.getvalue()},
+                                    {'name':'说明.txt','mimeType':'text/plain','buffer':b'notes'}])
+            preview=selected.get_by_role('button',name='预览 作业.PDF',exact=True)
+            assert selected.get_by_role('button',name='预览',exact=False).count()==1
+            with page.expect_response(origin+'/api/assignment/preview-pdf') as response:
+                with page.expect_popup() as opened:
+                    preview.click()
+            assert response.value.status==200
+            assert response.value.headers['content-type']=='application/pdf'
+            assert response.value.headers['content-disposition'].startswith('inline;')
+            assert response.value.body()==pdf.getvalue()
+            opened.value.wait_for_load_state('domcontentloaded')
+            assert opened.value.url==origin+'/api/assignment/preview-pdf'
+            opened.value.wait_for_timeout(1500)  # Native PDF viewer paints after DOM readiness.
+            # Headless Chrome exposes only its native reader shell (also for
+            # ordinary GET PDFs); the exact inline PDF bytes are checked above.
+            assert 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css' in opened.value.content()
+            opened.value.close()
+            report['pdf_preview']={'new_tab':True,'local_only':True,'exact_inline_bytes':True,'native_reader':True,'school_writes':0}
             assert '课程日历' in page.locator('.assignment').nth(2).inner_text()
             assert '最新一次是草稿' in page.locator('.assignment').nth(2).inner_text()
             page.locator('#assignment-coverage summary').click()
@@ -94,6 +123,8 @@ def main():
                 page.screenshot(path=str(args.output / f'coursework-{width}.png'), full_page=True)
                 assert dimensions['scroll'] <= dimensions['inner'], (width, dimensions, overflow, widths)
             state.update(assignments=[], assignment_coverage=[dict(coverage[0], state='complete', received=0, retained=0, errors=[])])
+            selected.locator('.file-chip').first.get_by_role('button',name='移除',exact=True).click()
+            assert selected.get_by_role('button',name='预览',exact=False).count()==0
             page.evaluate('renderDashboard({updated_at:"2026-10-12T12:00:00+08:00",tis:{},assignments:[],assignment_coverage:[{course:"样例",state:"complete",received:0,retained:0,checked_at:"2026-10-12T12:00:00+08:00"}]})')
             assert page.locator('.assignment').count() == 0
             assert '暂无作业' in page.locator('#assignments').inner_text()

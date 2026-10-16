@@ -121,6 +121,8 @@ def verify(manifest, output, port):
     if not preserved(before,after):raise ValueError('Personal data retention differs; keep release incomplete')
     if initial['configured'] and (not current['configured'] or current.get('credential_error')):
         raise ValueError('Owner login state was not preserved')
+    # Backend restarts rotate CSRF while the browser cookie remains valid.
+    unlock()
     r=s.post(origin+'/api/instance/updates/check',json={},headers=headers,timeout=15);r.raise_for_status()
     for _ in range(45):
         current=status()

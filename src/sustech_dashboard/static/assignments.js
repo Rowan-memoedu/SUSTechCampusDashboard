@@ -26,7 +26,18 @@
  function submission(root,entry,data){
   root.append(node('h3','提交作业'));const zone=node('div','拖拽文件到这里，或点击选择文件','dropzone');zone.tabIndex=0;zone.setAttribute('role','button');zone.setAttribute('aria-label','选择作业文件');const picker=node('input');picker.type='file';picker.multiple=true;zone.append(picker);const list=node('div'),text=node('textarea'),comments=node('textarea'),info=node('div'),footer=node('div','','submission-footer');text.placeholder='作业正文（可选）';comments.placeholder='提交注释（可选）';let files=[];
   const submit=button('提交作业',async()=>{if(busy)return;if(!files.length&&!text.value.trim()){notice(info,'请添加文件或填写作业正文');return;}busy=true;submit.disabled=true;submit.textContent='正在上传并核对…';const form=new FormData();form.append('operation_id',crypto.randomUUID());form.append('text',text.value);form.append('comments',comments.value);files.forEach(f=>form.append('files',f));try{const result=await campusJson(`/api/assignment/${data.course_id}/${data.content_id}/submit`,{method:'POST',headers:{'X-CSRF-Token':roomCsrf},body:form});notice(info,result.message,true);await load(entry);await refresh();}catch(e){notice(info,e.message);if(e.result?.state==='needs_review'){submit.disabled=true;info.append(button('核对 Blackboard 最新状态',()=>load(entry),'secondary'));}else submit.disabled=false;}finally{busy=false;submit.textContent='提交作业';}});footer.append(submit);
-  function showFiles(){list.replaceChildren();files.forEach((f,index)=>{const chip=node('div','','file-chip');chip.append(node('span',`${f.name} · ${(f.size/1024/1024).toFixed(2)} MB`),button('移除',()=>{files.splice(index,1);showFiles();},'secondary'));list.append(chip);});}
+  function previewPdf(file){
+   const form=node('form'),token=node('input'),input=node('input'),transfer=new DataTransfer();
+   form.method='POST';form.action=apiBase+'/api/assignment/preview-pdf';form.enctype='multipart/form-data';form.target='_blank';form.rel='noopener';form.hidden=true;
+   token.type='hidden';token.name='csrf_token';token.value=roomCsrf;input.type='file';input.name='file';transfer.items.add(file);input.files=transfer.files;
+   form.append(token,input);document.body.append(form);form.submit();form.remove();
+  }
+  function showFiles(){
+   list.replaceChildren();files.forEach((f,index)=>{const chip=node('div','','file-chip'),actions=node('div','','actions');chip.append(node('span',`${f.name} · ${(f.size/1024/1024).toFixed(2)} MB`));
+    if(/\.pdf$/i.test(f.name)||f.type==='application/pdf'){const preview=button('预览',()=>previewPdf(f),'secondary');preview.setAttribute('aria-label',`预览 ${f.name}`);actions.append(preview);}
+    actions.append(button('移除',()=>{files.splice(index,1);showFiles();},'secondary'));chip.append(actions);list.append(chip);
+   });
+  }
   function add(values){const next=[...files];for(const f of values){if(next.some(x=>x.name===f.name)){notice(info,`已选择同名文件：${f.name}`);continue;}next.push(f);}if(next.length>20||next.reduce((n,f)=>n+f.size,0)>255*1024*1024){notice(info,'每次最多 20 个文件，总大小不超过 255 MB');return;}files=next;showFiles();}
   zone.onclick=e=>{if(e.target!==picker)picker.click();};zone.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();picker.click();}};picker.onchange=()=>{add(picker.files);picker.value='';};zone.ondragover=e=>{e.preventDefault();zone.classList.add('drag');};zone.ondragleave=()=>zone.classList.remove('drag');zone.ondrop=e=>{e.preventDefault();zone.classList.remove('drag');add(e.dataTransfer.files);};root.append(zone,list,text,comments,node('div','点击提交会正式交给 Blackboard；请先按上方要求检查文件名、格式和内容。','muted'),info,footer);
  }

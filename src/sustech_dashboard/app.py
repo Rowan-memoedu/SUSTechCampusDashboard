@@ -221,7 +221,7 @@ def create_app(runtime=None) -> Flask:
             material_store = MaterialsStore(MATERIALS_DB)
         return material_store
 
-    def local_request(write: bool = False) -> None:
+    def local_request(write: bool = False, *, form_token: bool = False) -> None:
         if CLOUD:
             if request.host != os.environ.get("SUSTECH_PUBLIC_HOST") or not request.is_secure:
                 raise ValueError("访问地址无效")
@@ -233,9 +233,15 @@ def create_app(runtime=None) -> Flask:
             raise ValueError("仅允许本机访问")
         if write:
             origin = request.headers.get("Origin", "")
-            if origin not in {f"http://{request.host}", f"https://{request.host}"}:
+            # A no-referrer form navigation can send Origin:null. Only the
+            # read-only PDF echo accepts it, still requiring its secret token.
+            origins = {f"http://{request.host}", f"https://{request.host}"}
+            if form_token:
+                origins.add('null')
+            if origin not in origins:
                 raise ValueError("请求来源不匹配")
-            if not secrets.compare_digest(request.headers.get("X-CSRF-Token", ""), csrf):
+            token = request.form.get('csrf_token', '') if form_token else request.headers.get("X-CSRF-Token", "")
+            if not secrets.compare_digest(token, csrf):
                 raise ValueError("页面令牌无效，请刷新页面")
 
     if hosted() and runtime is None:
@@ -258,6 +264,25 @@ def create_app(runtime=None) -> Flask:
         local_request()
         if system not in {'library','ehall'}:abort(404)
         return render_template('venue.html', csrf_token=csrf, api_base=request.script_root, system=system, category=category)
+
+    @app.post('/api/assignment/preview-pdf')
+    def preview_assignment_pdf():
+        # Inline response uses the same native reader as generated booklets.
+        # No school request, disk persistence, or submission ledger entry.
+        try:
+            local_request(write=True, form_token=True)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        from io import BytesIO
+        from flask import send_file
+        file = request.files.get('file')
+        if file is None:
+            return jsonify(error='请选择 PDF 文件'), 400
+        content = file.read()
+        if not content.startswith(b'%PDF-'):
+            return jsonify(error='此文件不是有效的 PDF'), 400
+        return send_file(BytesIO(content), mimetype='application/pdf',
+                         as_attachment=False, download_name='preview.pdf')
 
     @app.get('/api/assignment/<cid>/<iid>')
     def assignment_detail(cid,iid):
