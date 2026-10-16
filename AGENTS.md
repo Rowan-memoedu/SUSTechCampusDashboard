@@ -2,7 +2,7 @@
 
 - 每次功能更新必须走 `python deploy/release.py --version <版本> --commit <完整提交>` 的统一发布入口。2026-10-14 用户将当前交付范围限定为 Windows：默认仅构建和发布 Windows，保留已有 Linux TUF 目标；独立 Windows 标准用户 CI 验证安装、真实旧版升级和数据保留，日常本机通过正式更新器安装并验证真实页面。当前不以 Linux 或旧 Windows 10 虚拟机作为完成门槛；恢复双平台范围须由用户明确要求，使用 `--platforms all`。固定源码后每平台只构建一次，GitHub、静态页、TUF 和本机复用同一批文件。禁止用候选安装器覆盖日常实例作为交付；源码修改后增加版本号，不能替换已发布文件。只有 `state.json` 为 `complete`，且本机、正式源、GitHub 的版本、源码提交、平台产物哈希和本机页面均实测通过，才能报告完成。失败保留批次并续跑，不重建同版本包。
 
-- 当前范围以 docs/WEB-HOSTED-PLAN.md 为准；新 Thread 从 docs/LOCAL-MODE-HANDOFF.md 开始。迁移与托管退役见 docs/LOCAL-MODE-ACCEPTANCE.md，当前分发、兼容性和独立 Windows 实测状态以 docs/RELEASE-0.4.3-ACCEPTANCE.md 为准，不能以同账号重装或 fixture 替代独立 Windows 验收。docs/RELEASE-0.4.1-ACCEPTANCE.md 与 docs/HOSTED-PHASE1.md 保留历史证据，不能把旧部署步骤当成恢复托管的授权。
+- 当前范围以 docs/WEB-HOSTED-PLAN.md 为准；新 Thread 从 docs/LOCAL-MODE-HANDOFF.md 开始。当前 Windows 分发与本机实测见 docs/RELEASE-0.5.12-ACCEPTANCE.md；旧 Windows 10、迁移与托管退役证据保留在 docs/RELEASE-0.4.3-ACCEPTANCE.md 和 docs/LOCAL-MODE-ACCEPTANCE.md，不能以同账号重装或 fixture 替代独立 Windows 验收。docs/RELEASE-0.4.1-ACCEPTANCE.md 与 docs/HOSTED-PHASE1.md 保留历史证据，不能把旧部署步骤当成恢复托管的授权。
 - 一个用户、一个进程、一个私密目录；上游认证有进程全局状态，禁止逐请求切换账号。复用 Flask 页面、业务适配器和 SQLite 账本，保持本机与用户自有 Linux 服务器兼容。
 - 默认个人页面与业务脚本由本机提供。禁止默认跳公网登录、恢复运营者配对或引入远程个人数据依赖；个人服务器的显式配置不得误删。
 - 不输出真实账号、密码、Cookie、邀请/设备令牌或校园正文。现有 DPAPI、systemd 凭据按所属用户保护；签名密钥、运行数据、恢复材料不进入 Git 和公开产物。

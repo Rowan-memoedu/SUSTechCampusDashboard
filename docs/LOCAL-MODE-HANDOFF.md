@@ -1,6 +1,6 @@
 # 第二阶段执行交接
 
-更新：2026-10-11。**0.4.3 已签名发布，本机后台和安装启动器已更新；修复新用户误选 D 盘与已有大型数据目录启动超时。**公共站仅提供静态下载／帮助，运营者托管已退役，服务器续签已接替本机调度。当前分发和独立 Windows 实测边界见 [0.4.3 验收](RELEASE-0.4.3-ACCEPTANCE.md)，历史迁移见 [阶段证据](LOCAL-MODE-ACCEPTANCE.md)，原本机清空重装和网页／静默运行修复见 [0.4.1 验收](RELEASE-0.4.1-ACCEPTANCE.md)。不要重复迁移、清空本机或恢复旧托管。
+更新：2026-10-16。**0.5.12 Windows 已通过统一发布流程并同步日常本机，交作业新增 PDF 预览。**当前证据见 [0.5.12 验收](RELEASE-0.5.12-ACCEPTANCE.md)；Linux 目标保留为 0.5.9。后续更新仅使用 `python deploy/release.py --version <版本> --commit <完整提交>`，失败按原参数续跑。公共站仅提供静态下载／帮助，运营者托管已退役。旧 Windows 10 实测见 [0.4.3 历史验收](RELEASE-0.4.3-ACCEPTANCE.md)，迁移见 [阶段证据](LOCAL-MODE-ACCEPTANCE.md)。不要重复迁移、清空本机或恢复旧托管。
 
 ## 当前路线
 
@@ -13,7 +13,7 @@
 1. 先读阶段验收记录，再核对 Git 工作树和实际运行版本；保留已有改动。
 2. 读取总计划中的迁移顺序、精确删除清单和共享资源边界。旧 [HOSTED-PHASE1.md](HOSTED-PHASE1.md) 仅为历史与退役前证据，不能重新开通托管。
 3. 维护者 Python：`D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe`；项目：`D:\Projects\SUSTechCampusDashboard`；构建缓存：`D:\Caches\SUSTechCampusDashboard`。
-4. 当前发布产物：`D:\Artifacts\SUSTechCampusDashboard\v0.4.3`；独立 Windows 与本机清空重装证据：`D:\Artifacts\SUSTechCampusDashboard\full-flow-20261010`，虚拟机及私密测试材料位于其中受限 `windows-vm` 目录；历史迁移证据：`D:\Artifacts\SUSTechCampusDashboard\local-mode-private`。安装：`D:\Applications\fy\SUSTechCampusDashboard`；真实数据：`D:\AppData\SUSTechCampusDashboard`。旧数据／连接／应用下载附件在 `D:\Quarantine\SUSTechCampusDashboard\clean-install-20261010`，不自动恢复或删除。原退役恢复副本仍在 `D:\Quarantine\SUSTechCampusDashboard\hosted-retirement-20261008`，至少保留至 2026-10-15 00:22，不自动删除。
+4. 当前发布产物：`D:\Artifacts\SUSTechCampusDashboard\releases\v0.5.12`，PDF 预览证据：`D:\Artifacts\SUSTechCampusDashboard\pdf-preview-20261016`。安装入口：`D:\Applications\fy\SUSTechCampusDashboard`；实际运行包由 `D:\AppData\SUSTechCampusDashboard\updates\current.json` 选择，核对其文件清单，不能以兼容入口版本判断后台版本。真实数据位于同一私密数据根。历史清空重装、迁移、隔离与恢复材料保持原位，不自动恢复或删除；历史路径见对应阶段验收记录。
 5. 维护连接：`ubuntu@124.221.144.155`，保持主机密钥校验。公共入口 `/app/`，TUF `/campus-updates/`；nginx 与 GraspMemoEdu 共用，不能整文件重写或停掉共享服务。
 
 ## 下一步与执行边界
