@@ -1,5 +1,7 @@
 # 校园面板开发边界
 
+- 腾讯云发布暂存由共用 `/usr/local/lib/tencent-cloud-maintenance/host.py run-stage --path <目录> -- <发布命令>` 管理；统一 `deploy/release.py` 已接入。成功后立即清理，异常无占用残留保留 24 小时后回收；发布源与本机批次保留可续跑，不触及正式下载、TUF 更新及续签资源。共用维护源码在 `D:/Projects/DeveloperGovernance/server-maintenance`。
+
 - 每次功能更新必须走 `python deploy/release.py --version <版本> --commit <完整提交>` 的统一发布入口。2026-10-14 用户将当前交付范围限定为 Windows：默认仅构建和发布 Windows，保留已有 Linux TUF 目标；独立 Windows 标准用户 CI 验证安装、真实旧版升级和数据保留，日常本机通过正式更新器安装并验证真实页面。当前不以 Linux 或旧 Windows 10 虚拟机作为完成门槛；恢复双平台范围须由用户明确要求，使用 `--platforms all`。固定源码后每平台只构建一次，GitHub、静态页、TUF 和本机复用同一批文件。禁止用候选安装器覆盖日常实例作为交付；源码修改后增加版本号，不能替换已发布文件。只有 `state.json` 为 `complete`，且本机、正式源、GitHub 的版本、源码提交、平台产物哈希和本机页面均实测通过，才能报告完成。失败保留批次并续跑，不重建同版本包。
 
 - 当前范围以 docs/WEB-HOSTED-PLAN.md 为准；新 Thread 从 docs/LOCAL-MODE-HANDOFF.md 开始。当前 Windows 分发与本机实测见 docs/RELEASE-0.5.13-ACCEPTANCE.md；旧 Windows 10、迁移与托管退役证据保留在 docs/RELEASE-0.4.3-ACCEPTANCE.md 和 docs/LOCAL-MODE-ACCEPTANCE.md，不能以同账号重装或 fixture 替代独立 Windows 验收。docs/RELEASE-0.4.1-ACCEPTANCE.md 与 docs/HOSTED-PHASE1.md 保留历史证据，不能把旧部署步骤当成恢复托管的授权。

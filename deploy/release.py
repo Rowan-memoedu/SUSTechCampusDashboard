@@ -287,7 +287,8 @@ class Release:
         command(['scp',*SSH_OPTIONS,*[ROOT/'deploy'/n for n in ('promote_release.py','publish_feed.py','feed_metadata.py')],SSH_HOST+':'+remote+'/'])
         expected=hashlib.sha256(blobs['timestamp.json']).hexdigest()
         output=command(['ssh',*SSH_OPTIONS,SSH_HOST,
-            'sudo -n /opt/sustech-campus-renewal/venv/bin/python '+remote+'/promote_release.py '+remote+' --expected-timestamp '+expected],timeout=300)
+            'sudo -n python3 /usr/local/lib/tencent-cloud-maintenance/host.py run-stage --path '+remote+
+            ' -- /opt/sustech-campus-renewal/venv/bin/python '+remote+'/promote_release.py '+remote+' --expected-timestamp '+expected],timeout=300)
         self.record('feed_site',json.loads(output))
 
     def verify_public(self, require_stable=False):
