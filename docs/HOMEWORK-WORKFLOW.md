@@ -46,11 +46,11 @@
 
 ## 验收命令与边界
 
-- `python -m pytest tests/test_homework.py -q`：基线、去重、并发、重启、两次确认、老师改题、原图保护、课程自动化、异常纠正、不可覆盖交付、API 文件边界。
+- `python -m pytest tests/test_homework.py tests/test_homework_toolchain.py -q`：基线、去重、并发、重启、两次确认、老师改题、原图保护、课程自动化、异常纠正、不可覆盖交付、API 文件边界，以及失效编译器路径与已通过阶段的恢复。
 - `python deploy/homework_preflight.py --output <private-output> --codex`：真实 Codex 随机文件读取 canary，不接触学校材料。
 - `python deploy/verify_homework_ui.py --output <artifact-dir> --cache <cache-dir>`：独立 Chrome 无界面测试，320/375/414/768/1280 像素，所有学校响应为隔离样例。其点击不构成用户真实确认。
 - `python deploy/homework_local_test.py --course-id <id> --content-id <id> --report <private-report>`：使用同一生产工作流处理指定真实作业，停在下一处人类确认，不自动回答。Windows PowerShell 启动异常时可传 `--cmd-shell` 让该次 Codex 使用 cmd；不改变系统默认 Shell。
 - `python deploy/homework_reference.py --root <instance-root> --course-id <id> --file <original.pdf> --title <book-title> --expected-sha256 <sha256>`：将已核对的本机教材登记为这门课程的补充来源。同一原件按哈希去重，源文件或暂存副本变化时拒绝使用；登记不启动任务，也不代替教材题号和 PDF 确认。
 - `python deploy/verify_homework_live.py --root <instance-root> --job <id> --output <artifact-dir> --stage awaiting_pdf`：只读检查真实安装版第二次确认框，核对下载 PDF 与交付文件逐字节相同；不发送确认。
 
-本次本机测试不代表公开分发或独立 Windows 安装链验收完成。原有 PowerShell 兼容测试超时仍单独记录，不能算通过。
+当前 Windows 正式分发、本机更新、运行时依赖和真实任务恢复验收见 [0.5.14 验收记录](RELEASE-0.5.14-ACCEPTANCE.md)。首次接入过程及当时的限制保留在 [作业接入验收](HOMEWORK-ACCEPTANCE-20261012.md)；历史超时不代表当前回归仍失败。
