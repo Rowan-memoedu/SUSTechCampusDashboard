@@ -55,14 +55,54 @@ def command(args, cwd, log, stop=None, timeout=7200, input_text=None, env=None):
             terminate(process)
 
 
+def existing_executable(candidates):
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate).expanduser()
+        if path.is_file():
+            return str(path)
+        found = shutil.which(str(candidate))
+        if found and Path(found).is_file():
+            return found
+    return None
+
+
+def installed_codex_tectonic():
+    """Resolve the current user's registered app, even in a stale service environment."""
+    if os.name != 'nt':
+        return None
+    # Appx is a Windows PowerShell module. Query registrations rather than
+    # enumerating the protected WindowsApps tree or guessing a version folder.
+    powershell = Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    script = ('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; '
+              '@(Get-AppxPackage -Name OpenAI.Codex -ErrorAction Stop | '
+              'Select-Object -ExpandProperty InstallLocation) | ConvertTo-Json -Compress')
+    try:
+        result = subprocess.run([str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+            capture_output=True, text=True, encoding='utf-8', timeout=20,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        if result.returncode:
+            return None
+        locations = json.loads(result.stdout or '[]')
+        if isinstance(locations, str):
+            locations = [locations]
+        return existing_executable(
+            Path(location) / 'app/resources/tectonic/tectonic.exe'
+            for location in locations if isinstance(location, str) and Path(location).is_absolute())
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return None
+
+
 def toolchain(settings=None):
     settings = settings or {}
     python_candidates = [settings.get('python'), os.environ.get('SUSTECH_HOMEWORK_PYTHON'),
         str(Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe'),
         shutil.which('python3'), shutil.which('python')]
-    python = next((x for x in python_candidates if x and Path(x).is_file()), None)
-    codex = settings.get('codex') or shutil.which('codex')
-    tectonic = settings.get('tectonic') or os.environ.get('CODEX_TECTONIC_PATH') or shutil.which('tectonic')
+    python = existing_executable(python_candidates)
+    codex = existing_executable([settings.get('codex'), shutil.which('codex')])
+    tectonic = existing_executable([settings.get('tectonic'), os.environ.get('CODEX_TECTONIC_PATH'),
+                                   shutil.which('tectonic')]) or installed_codex_tectonic()
     if not python:
         raise ValueError('尚未找到制册 Python，请在作业制册配置中指定现有运行时')
     return {'python': python, 'codex': codex, 'tectonic': tectonic}

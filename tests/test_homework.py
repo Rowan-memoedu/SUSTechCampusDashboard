@@ -104,6 +104,13 @@ def engine(tmp_path, rows=None):
     return HomeworkEngine(tmp_path, lambda: snapshot(*(rows or [])), BB, threading.Lock())
 
 
+def fixture_toolchain(tmp_path, monkeypatch):
+    import sustech_dashboard.homework_engine as module
+    executable = tmp_path / 'compiler-fixture'
+    executable.write_bytes(b'fixture; never executed')
+    monkeypatch.setattr(module, 'toolchain', lambda _: {'tectonic': str(executable), 'python': str(executable)})
+
+
 def test_routes_have_write_guard_and_hide_workspace_paths(tmp_path):
     app = Flask(__name__)
     runner = engine(tmp_path, [assignment()])
@@ -231,6 +238,7 @@ def test_graceful_shutdown_requeues_current_stage(tmp_path, monkeypatch):
 
 
 def test_translation_retry_starts_from_accepted_source_and_archives_failed_candidate(tmp_path, monkeypatch):
+    fixture_toolchain(tmp_path, monkeypatch)
     runner = engine(tmp_path)
     job = runner.store.enqueue(assignment(), explicit=True)
     data = job['data'] | {'active_phase': 'translation', 'retry_production': True,
@@ -256,10 +264,11 @@ def test_translation_retry_starts_from_accepted_source_and_archives_failed_candi
 @pytest.mark.parametrize('review_passes', [True, False])
 def test_formula_word_order_reaches_independent_review_without_bypassing_failure(tmp_path, monkeypatch, review_passes):
     import sustech_dashboard.homework_engine as module
+    fixture_toolchain(tmp_path, monkeypatch)
     runner = engine(tmp_path)
     job = runner.store.enqueue(assignment(), explicit=True)
     job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
-        'source_approved': 'bound', 'plan': {'ids': ['1']},
+        'source_approved': 'bound', 'plan': {'ids': ['1'], 'subject': 'Fixture', 'label': 'HW', 'books': []},
         'pipeline': {'english': True, 'calculation': True}})
     root = runner.setup(job)
     english = '### Problem 1\nFor $x>0$, $x^2>0$.\n#### Solution\nPositive squares are positive.'
@@ -282,13 +291,83 @@ def test_formula_word_order_reaches_independent_review_without_bypassing_failure
             raise ValueError('independent scientific review failed')
         return {'status': 'PASS'}
     monkeypatch.setattr(runner, 'review', review)
-    monkeypatch.setattr(module, 'toolchain', lambda _: {'tectonic': ''})
-    with pytest.raises(ValueError, match='Tectonic' if review_passes else 'scientific review failed'):
+    def stop_at_compilation(*args, **kwargs):
+        raise ValueError('compilation boundary reached')
+    monkeypatch.setattr(module, 'command', stop_at_compilation)
+    with pytest.raises(ValueError, match='compilation boundary' if review_passes else 'scientific review failed'):
         runner.produce(job)
     assert reviewed == ['translation-review']
     assert bool(runner.store.get(job['id'])['data']['pipeline'].get('translation')) == review_passes
     assert (root / 'work/review/translation/accepted.json').exists() == review_passes
     assert (root / 'work/答案册-英文.md').read_text(encoding='utf-8') == english
+
+
+@pytest.mark.parametrize('legacy_marker', [True, False])
+def test_compiler_retry_preserves_all_accepted_stages(tmp_path, monkeypatch, legacy_marker):
+    import sustech_dashboard.homework_engine as module
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path / 'private')
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], state='failed', stage='produce', error='compiler unavailable',
+        data=job['data'] | {'source_approved': 'bound',
+            'plan': {'ids': ['2.1'], 'subject': 'Fixture', 'label': 'HW', 'books': []},
+            'active_phase': 'translation' if legacy_marker else 'compiled',
+            'pipeline': {'english': True, 'calculation': True, 'translation': True}})
+    root = runner.setup(job)
+    preserved = {}
+    for name in ('答案册-英文.md', '答案册.md', 'review/translation/accepted.json'):
+        path = root / 'work' / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('accepted ' + name, encoding='utf-8')
+        preserved[name] = file_sha(path)
+    job = runner.store.decide(job['id'], job['revision'], 'retry')
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    monkeypatch.setattr(runner, 'ai', lambda *args, **kw: pytest.fail('accepted stage was regenerated'))
+    monkeypatch.setattr(runner, 'review', lambda *args, **kw: pytest.fail('accepted stage was reviewed again'))
+    def render(args, *a, **kw):
+        assert Path(args[1]).name == 'render_booklets.py'
+        assert {name: file_sha(root / 'work' / name) for name in preserved} == preserved
+        assert runner.store.get(job['id'])['data']['active_phase'] == 'compiled'
+        raise RuntimeError('resumed at rendering')
+    monkeypatch.setattr(module, 'command', render)
+    with pytest.raises(RuntimeError, match='resumed at rendering'):
+        runner.produce(job)
+    assert runner.store.get(job['id'])['data']['pipeline'] == {
+        'english': True, 'calculation': True, 'translation': True}
+
+
+def test_missing_compiler_fails_before_generation_and_records_compile_phase(tmp_path, monkeypatch):
+    import sustech_dashboard.homework_engine as module
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce',
+        data=job['data'] | {'source_approved': 'bound', 'plan': {'ids': ['2.1']}})
+    monkeypatch.setattr(module, 'toolchain', lambda _: {'tectonic': None})
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    monkeypatch.setattr(runner, 'ai', lambda *args, **kw: pytest.fail('generation started without compiler'))
+    with pytest.raises(ValueError, match='Tectonic'):
+        runner.produce(job)
+    assert runner.store.get(job['id'])['data']['active_phase'] == 'compiled'
+    assert runner.store.get(job['id'])['data']['pipeline'] == {}
+
+
+def test_visual_review_of_compiled_pdfs_does_not_require_compiler(tmp_path, monkeypatch):
+    import sustech_dashboard.homework_engine as module
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['2.1'], 'subject': 'Fixture', 'label': 'HW', 'books': []},
+        'pipeline': {'english': True, 'calculation': True, 'translation': True, 'compiled': True}})
+    monkeypatch.setattr(module, 'toolchain', lambda _: {'tectonic': None})
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    root = runner.setup(job)
+    (root / 'work/review/final-verification.json').write_text('{"pdfs": []}', encoding='utf-8')
+    def review(root, stage, *args):
+        assert stage == 'final-review'
+        raise RuntimeError('visual review reached')
+    monkeypatch.setattr(runner, 'review', review)
+    with pytest.raises(RuntimeError, match='visual review reached'):
+        runner.produce(job)
 
 
 @pytest.mark.parametrize('tamper', ['none', 'prose', 'page', 'candidate'])

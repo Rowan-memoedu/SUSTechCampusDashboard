@@ -317,6 +317,13 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
             prior = root / 'rejected' / str(time.time_ns())
             shutil.copytree(work, prior)
             failed = data.get('active_phase', 'english')
+            if pipeline.get(failed):
+                # Older versions could fail between a successful checkpoint and
+                # the next phase marker (notably compiler discovery). Resume the
+                # first unfinished stage; never discard an accepted translation.
+                failed = next((name for name in ('english', 'calculation', 'translation', 'compiled')
+                               if not pipeline.get(name)), 'visual')
+                data['active_phase'] = failed
             reset = {'english': ('english', 'calculation', 'translation', 'compiled'),
                      'calculation': ('english', 'calculation', 'translation', 'compiled'),
                      'translation': ('translation', 'compiled'), 'compiled': ('compiled',), 'visual': ('compiled',)}
@@ -342,6 +349,17 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
         def phase(name):
             data['active_phase'] = name
             self.store.update(job['id'], data=data)
+
+        def compiler():
+            chain = toolchain(self.settings())
+            if not chain['tectonic'] or not Path(chain['tectonic']).is_file():
+                phase('compiled')
+                raise ValueError('未找到可用的 Tectonic 编译器，已有稿件与审核已保留；恢复编译器后可重试续跑')
+            return chain
+
+        if not pipeline.get('compiled'):
+            # Detect a missing dependency before spending time on generation.
+            compiler()
 
         if not pipeline.get('english'):
             phase('english')
@@ -391,9 +409,6 @@ reviewed_pages 写本次实际看过的所有原页图的工作区相对路径�
             checkpoint('translation')
         if data['source_approved'] != self.source_digest(root, data):
             raise ValueError('生产阶段修改了已确认的题面或原件，审核已失效')
-        chain = toolchain(self.settings())
-        if not chain['tectonic'] or not Path(chain['tectonic']).is_file():
-            raise ValueError('未找到可用的 Tectonic 编译器，英文稿与译文已保留')
         prefix = safe_name(plan['subject'] + '_' + plan['label'])
         hw = {'directory': 'work', 'subject': plan['subject'], 'label': plan['label'], 'ids': ids,
               'textbook': ' / '.join(x['title'] for x in plan['books']), 'questions_per_page': 2,
@@ -406,6 +421,9 @@ reviewed_pages 写本次实际看过的所有原页图的工作区相对路径�
         save(root / 'homework_sets.json', [hw])
         if not pipeline.get('compiled'):
             phase('compiled')
+            # The desktop app may update while the earlier AI stages are running.
+            chain = compiler()
+            save(root / 'toolchain.json', chain)
             command([chain['python'], str(root / 'workflow/render_booklets.py'), 'work', 'questions', 'writing', 'solutions'],
                     root, root / 'logs/render.log', self.stop, timeout=300)
             for module in ('questions', 'writing', 'solutions'):
