@@ -1,6 +1,6 @@
 # 安装、更新与发布维护
 
-更新：2026-10-21。0.5.15 Windows 已通过统一发布流程并同步日常本机；当前构建、公开旧版升级和本机验收见[0.5.15 验收记录](docs/RELEASE-0.5.15-ACCEPTANCE.md)，历史迁移与托管退役见[阶段记录](docs/LOCAL-MODE-ACCEPTANCE.md)。Linux 目标保留为 0.5.9。保留原 TUF 更新源和信任根；服务器后台每 20 天续签，不依赖发布者电脑或 Codex。
+更新：2026-10-21。0.5.16 Windows 已通过统一发布流程并同步日常本机；当前构建、公开旧版升级和本机验收见[0.5.16 验收记录](docs/RELEASE-0.5.16-ACCEPTANCE.md)，历史迁移与托管退役见[阶段记录](docs/LOCAL-MODE-ACCEPTANCE.md)。Linux 目标保留为 0.5.9。保留原 TUF 更新源和信任根；服务器后台每 20 天续签，不依赖发布者电脑或 Codex。
 
 当前运行支持 `SUSTECH_EXECUTION_MODE=local` 或 `personal_server`，未设置时兼容旧 `SUSTECH_CLOUD`。`hosted` 标识仅供历史模块与迁移工具识别，0.4.0 后台入口拒绝启动运营者托管。旧升级与备份证据保留在 [第一阶段记录](docs/HOSTED-PHASE1.md)，不作为重新部署方案。
 

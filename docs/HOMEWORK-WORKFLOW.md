@@ -61,4 +61,4 @@
 - `python deploy/homework_reference.py --root <instance-root> --course-id <id> --file <original.pdf> --title <book-title> --expected-sha256 <sha256>`：将已核对的本机教材登记为这门课程的补充来源。同一原件按哈希去重，源文件或暂存副本变化时拒绝使用；登记不启动任务，也不代替教材题号和 PDF 确认。
 - `python deploy/verify_homework_live.py --root <instance-root> --job <id> --output <artifact-dir> --stage awaiting_pdf`：只读检查真实安装版第二次确认框，核对下载 PDF 与交付文件逐字节相同；不发送确认。
 
-当前 Windows 正式分发、本机更新和任务阶段恢复见 [0.5.15 验收记录](RELEASE-0.5.15-ACCEPTANCE.md)；编译器发现与已通过稿件的恢复见 [0.5.14 历史验收](RELEASE-0.5.14-ACCEPTANCE.md)。首次接入过程及当时的限制保留在 [作业接入验收](HOMEWORK-ACCEPTANCE-20261012.md)；历史超时不代表当前回归仍失败。
+当前 Windows 正式分发、本机更新、作图与任务恢复见 [0.5.16 验收记录](RELEASE-0.5.16-ACCEPTANCE.md)；阶段职责修复见 [0.5.15 历史验收](RELEASE-0.5.15-ACCEPTANCE.md)，编译器发现与已通过稿件的恢复见 [0.5.14 历史验收](RELEASE-0.5.14-ACCEPTANCE.md)。首次接入过程及当时的限制保留在 [作业接入验收](HOMEWORK-ACCEPTANCE-20261012.md)；历史超时不代表当前回归仍失败。
