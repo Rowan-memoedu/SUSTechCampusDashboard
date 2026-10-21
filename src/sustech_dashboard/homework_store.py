@@ -183,9 +183,9 @@ class HomeworkStore:
                 data['artifacts'] = []
                 state, stage = 'queued', 'discover' if action == 'correct_source' else ('extract' if data.get('downloads') else 'discover')
             elif action == 'retry' and state in {'failed', 'needs_attention'}:
-                if stage == 'produce':
-                    data['retry_production'] = True
-                    data.setdefault('feedback', []).append({'stage': data.get('active_phase', stage),
+                if stage in {'extract', 'produce'}:
+                    data['retry_extraction' if stage == 'extract' else 'retry_production'] = True
+                    data.setdefault('feedback', []).append({'stage': data.get('active_phase', stage) if stage == 'produce' else stage,
                         'text': job['error'][:5000], 'at': now()})
                 state = 'queued'
             else:

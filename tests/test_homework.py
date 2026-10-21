@@ -225,6 +225,125 @@ def test_retry_records_failure_and_restarts_only_production_stage(tmp_path):
     assert retried['data']['feedback'][-1]['text'] == 'translation omitted a paragraph'
 
 
+def extraction_fixture(tmp_path, monkeypatch):
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path / 'private')
+    original = tmp_path / 'book.pdf'
+    original.write_bytes(b'immutable fixture source')
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='extract', data=job['data'] | {
+        'input': {'requirement': '2.1'}, 'discovery': {'ids': ['2.1']},
+        'downloads': [{'key': 'book', 'path': str(original), 'sha256': file_sha(original)}]})
+    result = {'status': 'ready', 'ids': ['2.1'], 'label': 'Fixture', 'subject': 'Course',
+        'notes': 'Source read; later independent review pending', 'uncertainties': [],
+        'books': [{'key': 'book', 'title': 'Fixture', 'edition': '1', 'evidence': 'page 1'}],
+        'source_pages': [{'id': '2.1', 'images': ['work/review/source-pages/1.png']}]}
+    def extracted(root, stage, *args, **kwargs):
+        assert stage == 'extract'
+        assert file_sha(original) == job['data']['downloads'][0]['sha256']
+        (root / 'work/题目.md').write_text('### Problem 2.1\nFind the determinant.', encoding='utf-8')
+        page = root / result['source_pages'][0]['images'][0]
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_bytes(b'fixture image; not visually reviewed in this unit test')
+        return result
+    monkeypatch.setattr(runner, 'ai', extracted)
+    return runner, job, result, extracted
+
+
+@pytest.mark.parametrize('trusted', [False, True])
+def test_extraction_ready_advances_without_claiming_later_review(tmp_path, monkeypatch, trusted):
+    runner, job, result, _ = extraction_fixture(tmp_path, monkeypatch)
+    if trusted:
+        with runner.store.db() as db:
+            db.execute('UPDATE courses SET trusted=1 WHERE id=?', ('c',))
+    runner.extract(job)
+    after = runner.store.get(job['id'])
+    assert after['state'] == ('queued' if trusted else 'awaiting_source')
+    assert after['stage'] == 'produce'
+    assert after['data']['plan'] == result
+    assert not after['data'].get('pipeline')
+    assert not (runner.workspace(after) / 'work/review/independent-review.json').exists()
+    assert bool(after['data'].get('source_approved')) == trusted
+
+
+def test_extraction_real_source_uncertainty_still_pauses(tmp_path, monkeypatch):
+    runner, job, result, _ = extraction_fixture(tmp_path, monkeypatch)
+    result.update(status='needs_attention', uncertainties=['Requested problem is absent from the supplied edition'])
+    runner.extract(job)
+    after = runner.store.get(job['id'])
+    assert after['state'] == 'needs_attention' and after['stage'] == 'extract'
+    assert after['error'] == result['uncertainties'][0]
+    assert not after['data'].get('source_approved')
+
+
+def test_extraction_retry_archives_candidate_and_reads_original_again(tmp_path, monkeypatch):
+    runner, job, result, extracted = extraction_fixture(tmp_path, monkeypatch)
+    root = runner.setup(job)
+    (root / 'work/题目.md').write_text('old candidate', encoding='utf-8')
+    job = runner.store.update(job['id'], state='needs_attention', error='later review pending',
+        data=job['data'] | {'plan': {'status': 'needs_attention'}})
+    retry = runner.store.decide(job['id'], job['revision'], 'retry')
+    assert retry['data']['retry_extraction'] is True
+    assert retry['data']['feedback'][-1]['stage'] == 'extract'
+    def regenerate(root, stage, *args, **kwargs):
+        assert not (root / 'work/题目.md').exists()
+        archived = next((root / 'rejected').iterdir())
+        assert (archived / '题目.md').read_text(encoding='utf-8') == 'old candidate'
+        assert json.loads((archived / 'retry-context.json').read_text(encoding='utf-8'))['plan']['status'] == 'needs_attention'
+        return extracted(root, stage, *args, **kwargs)
+    monkeypatch.setattr(runner, 'ai', regenerate)
+    runner.extract(retry)
+    after = runner.store.get(job['id'])
+    assert after['state'] == 'awaiting_source'
+    assert not after['data'].get('retry_extraction')
+    assert after['data'].get('attempt', 0) == job['data'].get('attempt', 0)
+
+
+def test_ai_supplies_current_stage_even_with_cached_legacy_manual(tmp_path, monkeypatch):
+    import sustech_dashboard.homework_engine as module
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    root = runner.setup(job)
+    manual = root / 'workflow/README.md'
+    manual.write_text('冻结题面需要后续独立审核通过', encoding='utf-8')
+    original_hash = file_sha(manual)
+    class Capture:
+        def run(self, root, stage, prompt, schema, images=()):
+            assert stage == 'extract'
+            assert '当前阶段为 extract' in prompt
+            assert '阶段边界优先于 README' in prompt
+            assert '面板随后另行调用 independent-review' in prompt
+            assert '不创建其他阶段的通过记录' in prompt
+            assert '当前阶段的真实缺失、歧义和错误仍必须如实报告' in prompt
+            return {'status': 'ready'}
+    monkeypatch.setattr(module, 'backend', lambda *args: Capture())
+    assert runner.ai(root, 'extract', 'Read source pages.', module.PLAN) == {'status': 'ready'}
+    assert file_sha(manual) == original_hash
+
+
+def test_independent_source_review_failure_blocks_translation_and_delivery(tmp_path, monkeypatch):
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['2.1'], 'source_pages': []},
+        'pipeline': {'english': True}})
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    calls = []
+    def reject(root, stage, *args, **kwargs):
+        calls.append(stage)
+        return {'status': 'FAIL', 'findings': ['A matrix entry differs from the original page'],
+            'problems': [{'id': '2.1'}], 'reviewed_pages': []}
+    monkeypatch.setattr(runner, 'ai', reject)
+    with pytest.raises(ValueError, match='matrix entry'):
+        runner.produce(job)
+    assert calls == ['independent-review']
+    after = runner.store.get(job['id'])
+    assert after['data']['pipeline'] == {'english': True}
+    assert not after['data'].get('artifacts')
+
+
 def test_graceful_shutdown_requeues_current_stage(tmp_path, monkeypatch):
     runner = engine(tmp_path)
     job = runner.store.enqueue(assignment(), explicit=True)
