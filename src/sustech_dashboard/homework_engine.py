@@ -346,6 +346,11 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
                      'translation': ('translation', 'compiled'), 'compiled': ('compiled',), 'visual': ('compiled',)}
             for stage in reset.get(failed, reset['english']):
                 pipeline.pop(stage, None)
+            if failed in {'english', 'calculation'}:
+                # Regenerate rejected answers from the frozen questions, without
+                # leaving the rejected draft as the next producer's starting file.
+                (work / '答案册-英文.md').unlink(missing_ok=True)
+                (work / '答案册.md').unlink(missing_ok=True)
             if failed == 'translation':
                 # The failed candidate is recoverable in rejected/. Start from
                 # the accepted English source, not incremental edits to it.
@@ -384,20 +389,31 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
 每题以完全相同的 ### Problem ID 开头，先逐字保留完整英文题面，再用 #### Solution 开始解答。
 若原件是中文，另存准确的 work/题目-英文.md，最终中文答案册必须恢复原中文题面。
 物理题必须核查图、方向、单位、量纲与适用条件；数学证明写清前提及全部分类。
+逐题检查是否要求 draw/sketch/plot/画图。凡要求作图，必须实际生成可直接阅读的答案图，以 Markdown 图片嵌入对应 Solution；只有坐标表、映射数组或“请画出”的文字说明不算完成作图，教材原图也不能代替所求答案图。
+用 Python/Matplotlib 等确定性工具按计算结果绘图，PNG 存于 work/solution-figures，与原题配图区分。保留生成脚本；标清所需对象、坐标、箭头、分解及映射关系，尺度与几何关系符合题意。实际打开生成的每张图，确认标签可读、无重叠或裁切，再返回 ready。不得覆盖原题图片。
 使用本机 Python/SymPy 做必要独立计算，并保存可检查计算记录；不要改动冻结题面或生成通过结论。
-只写英文底稿及计算过程，暂不翻译、排版。''', RESULT)
+从冻结题面重新生成完整英文底稿、所需答案图及计算过程；旧候选仅作失败证据，不在旧稿上局部补丁。暂不翻译或生成三册 PDF。''', RESULT)
             if result.get('status') != 'ready' or headings(work / '答案册-英文.md') != ids:
                 raise ValueError('英文解答不完整，未进入下一阶段')
             checkpoint('english')
         if not pipeline.get('calculation'):
             phase('calculation')
             source_images = sorted({p for x in plan['source_pages'] for p in x['images']})
+            answer_images = []
+            english_path = work / '答案册-英文.md'
+            for name in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', english_path.read_text(encoding='utf-8')):
+                picture = confined(work, name)
+                if picture.suffix.lower() != '.png' or not picture.is_file():
+                    raise ValueError('英文解答引用的图片不存在或不是 PNG')
+                answer_images.append(picture.relative_to(root.resolve()).as_posix())
+            review_images = list(dict.fromkeys(source_images + answer_images))
             result = self.review(root, 'independent-review', '''独立复核 work/答案册-英文.md，不接受生产者自报正确。
 实际查看 plan.json 的全部 source_pages 原页图，核对 work/题目.md 的每个数字、符号、分问与图。
+核对所有明确作图要求是否有实际答案图；逐张查看英文稿引用的全部图片，检查坐标、方向、比例、标签、分解与映射关系。文字作图指令或教材原图不能代替本题所求答案图。
 逐题重新建模/计算/回代，检查中间式、参数条件、物理方向和量纲，证明另核逻辑前提。查看并核实已有计算记录，必要时独立重算。
 禁止修改候选题面或解答。发现任何问题返回 FAIL 与具体 findings，不能为了通过而放宽规则。
 problems 必须按原顺序覆盖每题，source_notes 和 calculation_notes 写实际核验依据，不得只有 PASS；translation_notes 暂填“尚未翻译”。
-reviewed_pages 写本次实际看过的所有原页图的工作区相对路径。''', ids, source_images)
+reviewed_pages 写本次实际看过的所有原页图与解答引用图片的工作区相对路径。''', ids, review_images)
             checkpoint('calculation')
         if not pipeline.get('translation'):
             phase('translation')

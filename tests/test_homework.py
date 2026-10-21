@@ -329,6 +329,8 @@ def test_independent_source_review_failure_blocks_translation_and_delivery(tmp_p
     job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
         'source_approved': 'bound', 'plan': {'ids': ['2.1'], 'source_pages': []},
         'pipeline': {'english': True}})
+    root = runner.setup(job)
+    (root / 'work/答案册-英文.md').write_text('### Problem 2.1\nQuestion\n#### Solution\nCandidate', encoding='utf-8')
     monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
     calls = []
     def reject(root, stage, *args, **kwargs):
@@ -342,6 +344,60 @@ def test_independent_source_review_failure_blocks_translation_and_delivery(tmp_p
     after = runner.store.get(job['id'])
     assert after['data']['pipeline'] == {'english': True}
     assert not after['data'].get('artifacts')
+
+
+@pytest.mark.parametrize('failed_phase', ['english', 'calculation'])
+def test_rejected_english_is_archived_and_regenerated_from_frozen_questions(tmp_path, monkeypatch, failed_phase):
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'active_phase': failed_phase, 'retry_production': True,
+        'plan': {'ids': ['2.1']}, 'pipeline': {'english': True} if failed_phase == 'calculation' else {}})
+    root = runner.setup(job)
+    (root / 'work/题目.md').write_text('frozen source', encoding='utf-8')
+    (root / 'work/答案册-英文.md').write_text('rejected English', encoding='utf-8')
+    (root / 'work/答案册.md').write_text('stale translation', encoding='utf-8')
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def regenerate(root, stage, instruction, *args, **kwargs):
+        assert stage == 'english'
+        assert not (root / 'work/答案册-英文.md').exists()
+        assert not (root / 'work/答案册.md').exists()
+        assert (root / 'work/题目.md').read_text(encoding='utf-8') == 'frozen source'
+        archived = next((root / 'rejected').iterdir())
+        assert (archived / '答案册-英文.md').read_text(encoding='utf-8') == 'rejected English'
+        assert (archived / '答案册.md').read_text(encoding='utf-8') == 'stale translation'
+        assert '实际生成可直接阅读的答案图' in instruction
+        raise RuntimeError('observed fresh generation boundary')
+    monkeypatch.setattr(runner, 'ai', regenerate)
+    with pytest.raises(RuntimeError, match='fresh generation boundary'):
+        runner.produce(job)
+
+
+def test_answer_images_are_attached_and_covered_by_independent_review(tmp_path, monkeypatch):
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['2.1'],
+            'source_pages': [{'id': '2.1', 'images': ['work/review/source.png']}]},
+        'pipeline': {'english': True}})
+    root = runner.setup(job)
+    (root / 'work/solution-figures').mkdir()
+    (root / 'work/solution-figures/vector.png').write_bytes(b'fixture only')
+    (root / 'work/答案册-英文.md').write_text(
+        '### Problem 2.1\nDraw a vector.\n#### Solution\n![vector](solution-figures/vector.png)', encoding='utf-8')
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def review_then_stop(root, stage, instruction, schema, images=()):
+        if stage == 'independent-review':
+            assert images == ['work/review/source.png', 'work/solution-figures/vector.png']
+            return {'status': 'PASS', 'findings': [], 'problems': [{'id': '2.1'}], 'reviewed_pages': images}
+        assert stage == 'translation'
+        raise RuntimeError('observed after image review')
+    monkeypatch.setattr(runner, 'ai', review_then_stop)
+    with pytest.raises(RuntimeError, match='after image review'):
+        runner.produce(job)
+    assert runner.store.get(job['id'])['data']['pipeline']['calculation'] is True
 
 
 def test_graceful_shutdown_requeues_current_stage(tmp_path, monkeypatch):
