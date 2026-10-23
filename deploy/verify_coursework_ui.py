@@ -54,8 +54,13 @@ def main():
     def api(route):
         if route.request.url==origin+'/api/assignment/preview-pdf':
             return route.continue_()
-        assert route.request.method=='GET', 'UI acceptance must not submit to school'
         path = route.request.url.split(origin, 1)[-1]
+        if path == '/api/sync' and route.request.method == 'POST':
+            # This local read trigger has no school write. Stub it explicitly;
+            # every other non-GET remains forbidden, including submissions.
+            report['local_sync_requests'] = report.get('local_sync_requests', 0) + 1
+            return route.fulfill(status=202, json={'accepted': True, 'syncing': True})
+        assert route.request.method=='GET', 'UI acceptance must not submit to school'
         if path == '/api/status':
             return route.fulfill(json=state)
         if path.startswith('/api/assignment/'):
@@ -80,6 +85,8 @@ def main():
             page.on('pageerror', lambda error: report['errors'].append(str(error)))
             page.goto(origin)
             page.locator('.assignment').first.wait_for()
+            page.wait_for_function("document.querySelector('#campus-sync')?.getAttribute('aria-busy')==='false'")
+            assert report.get('local_sync_requests', 0) >= 1
             assert '读取不完整' in page.locator('#metrics').inner_text()
             assert '≥ 2' in page.locator('#metrics').inner_text()
             assert '仅日期' in page.locator('.assignment').first.inner_text()
