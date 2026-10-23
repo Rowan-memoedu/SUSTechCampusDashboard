@@ -26,6 +26,8 @@ def secure_upstream():
     os.environ["SUSTECH_HOME"] = str(DATA_ROOT / "upstream")
     from sustech_survival.sso.providers.cas import CASAuthorizer
     CASAuthorizer._build_cas_session = strict_cas_session
+    from .campus_login import install
+    install()
 
 
 def set_credentials(sid, password):

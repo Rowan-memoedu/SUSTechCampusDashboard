@@ -1,4 +1,10 @@
 (()=>{
+  const campusLogin=document.getElementById('campus-login'),campusMessage=document.getElementById('campus-login-message');
+  if(campusLogin){
+    async function loginState(){try{const response=await fetch(apiBase+'/api/instance');if(!response.ok)return;const data=await response.json();campusMessage.textContent=data.campus_login?.message||'';campusLogin.disabled=data.campus_login?.state==='waiting';}catch{}}
+    campusLogin.onclick=async()=>{campusLogin.disabled=true;try{await post('/api/instance/campus-login');await loginState();}catch(e){campusMessage.textContent=e.message;campusLogin.disabled=false;}};
+    loginState();setInterval(loginState,3000);
+  }
   async function post(path,data){const r=await fetch(apiBase+path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':roomCsrf},body:JSON.stringify(data||{})});const value=await r.json();if(!r.ok)throw Error(value.error||'请求失败');return value;}
   const form=document.getElementById('owner-login');
   if(form)form.addEventListener('submit',async event=>{

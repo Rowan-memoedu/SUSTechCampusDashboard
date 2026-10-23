@@ -4,6 +4,7 @@
 <section class="wide"><h2>当前实例</h2><div id="instance-info">正在读取…</div><p>校园数据、登录凭据和操作记录保存在当前个人运行端。关闭浏览器后组件仍可运行；退出组件或关机期间停止同步。</p></section>
 {% if not hosted %}{% include 'update.html' %}{% endif %}
 {% if not personal_server %}
+<section class="wide"><h2>校园登录</h2><p>学校要求人机验证时，在官方窗口中登录。完成后自动恢复同步；认证会话仅在当前电脑加密保存，最长保留 12 小时。</p><button id="campus-login" type="button">恢复校园登录</button><p id="campus-login-message" role="status" aria-live="polite"></p></section>
 <section class="wide"><h2>下载与后台启动</h2><form id="preferences" class="account-form">
 <label>资料保存目录<input name="download_root" required maxlength="500"><span class="muted">更改目录在下次启动时生效；已有文件保持原位。</span></label>
 <label class="check-option"><input name="autostart" type="checkbox">登录 Windows 后在后台启动，不自动弹出浏览器</label>

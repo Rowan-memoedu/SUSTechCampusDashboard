@@ -31,7 +31,7 @@ def browser_executable():
 
 
 @contextmanager
-def browser_context(auth=None):
+def browser_context(auth=None, *, headless=True):
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -39,7 +39,7 @@ def browser_context(auth=None):
     executable = browser_executable()
     with sync_playwright() as pw:
         try:
-            browser = pw.chromium.launch(headless=True, **({'executable_path': executable} if executable else {}))
+            browser = pw.chromium.launch(headless=headless, **({'executable_path': executable} if executable else {}))
         except Exception:
             raise ValueError('未找到可用的浏览器组件；请安装 Google Chrome 后重试') from None
         try:

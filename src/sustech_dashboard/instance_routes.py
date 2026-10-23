@@ -168,6 +168,7 @@ def register_instance(app, runtime, guard, csrf):
 
     @app.get("/api/instance")
     def instance_status():
+        from .campus_login import status as campus_login_status
         from .desktop import preferences
         from .release_identity import read_identity
         return jsonify({"version": __version__, "mode": "托管空间" if is_hosted else "个人服务器" if cloud else "本机客户端",
@@ -178,7 +179,16 @@ def register_instance(app, runtime, guard, csrf):
             "update": dict(runtime.update.state), "managed": not is_hosted and bool(os.environ.get("SUSTECH_MANAGED_RUNTIME")),
             "last_update": load_json(DATA_ROOT / "updates/last-result.json", {}),
             "preferences": preferences(DATA_ROOT, DOWNLOAD_ROOT),
-            "credential_error": runtime.credential_error})
+            "credential_error": runtime.credential_error, "campus_login": campus_login_status()})
+
+    @app.post('/api/instance/campus-login')
+    def campus_login():
+        if cloud:
+            abort(403)
+        guard(write=True)
+        from .campus_login import begin
+        begin(runtime)
+        return jsonify(accepted=True), 202
 
     @app.post('/api/instance/preferences')
     def instance_preferences():
