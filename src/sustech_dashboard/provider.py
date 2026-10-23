@@ -105,13 +105,14 @@ class Blackboard:
         )))
 
     def get(self, path: str, *, stream: bool = False):
-        response = self.session.get(_api_path(path), timeout=(10, 60 if stream else 20), stream=stream)
+        timeout = (10, 60 if stream else getattr(self, '_read_timeout', 20))
+        response = self.session.get(_api_path(path), timeout=timeout, stream=stream)
         if response.status_code == 401 or urlparse(response.url).hostname == 'cas.sustech.edu.cn':
             response.close()
             self.session.close()
             self._open_session(refresh=True)
             # Retry only this read. Submission POSTs are never replayed.
-            response = self.session.get(_api_path(path), timeout=(10, 60 if stream else 20), stream=stream)
+            response = self.session.get(_api_path(path), timeout=timeout, stream=stream)
         category = 'personal_state_requests' if '/users/' in path or '/gradebook/' in path else 'visibility_requests'
         if hasattr(self, 'metrics'):
             self.metrics[category] += 1 + len(response.history) + len(getattr(getattr(response.raw, 'retries', None), 'history', ()))
@@ -230,6 +231,14 @@ class Blackboard:
                     self._inaccessible_folders = getattr(self, "_inaccessible_folders", 0) + 1
 
     def attachments(self, course_id: str) -> list[dict[str, str]]:
+        previous = getattr(self, '_read_timeout', 20)
+        self._read_timeout = 60
+        try:
+            return self._attachments(course_id)
+        finally:
+            self._read_timeout = previous
+
+    def _attachments(self, course_id: str) -> list[dict[str, str]]:
         out: list[dict[str, str]] = []
         before = getattr(self, "_inaccessible_folders", 0)
         inaccessible_attachments = 0
