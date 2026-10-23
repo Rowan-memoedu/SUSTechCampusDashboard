@@ -1,4 +1,5 @@
 let latestCampus={};
+let refreshTimer,refreshing=false,syncRequesting=false,syncError=false;
 function metric(el,value,label){const box=node('div','','metric');box.append(node('strong',value),node('span',label));el.append(box);}
 function renderWeek(tis){
  const root=clear('week-schedule'),week=tis.week_schedule;if(!week?.days?.length){empty(root,'本周课表尚未成功同步');return;}
@@ -11,7 +12,9 @@ function renderWeek(tis){
  slots.forEach(([title,time,periods])=>{const t=node('div','','week-cell week-time');t.append(node('strong',title),node('span',time));grid.append(t);week.days.forEach(day=>{const cell=node('div','','week-cell');(day.classes||[]).filter(c=>(c.periods||[]).some(p=>periods.includes(p))).forEach(c=>{const event=node('div','','course-event');event.style.setProperty('--event',color(c.KCMC||''));event.append(node('strong',c.KCMC),node('span',c.room||'未标教室'),node('span',`第 ${(c.periods||[]).join('、')} 节 · ${time}`));event.title=`${c.KCMC} · ${c.room||''} · ${c.teacher||''}`;cell.append(event);});grid.append(cell);});});
 }
 function renderDashboard(data){
- latestCampus=data;$('updated').textContent=data.updated_at?`最近同步：${timestamp(data.updated_at)}${data.syncing?' · 正在后台同步':''}`:'正在首次读取个人课表、作业和资料，完成后自动显示，无需再次登录';
+ latestCampus=data;const sources=data.source_updated_at||{};$('updated').textContent=data.updated_at?`作业更新：${timestamp(sources.blackboard)} · 课表更新：${timestamp(sources.tis)}${data.syncing?' · 正在后台同步':''}`:'正在首次读取个人课表、作业和资料，完成后自动显示，无需再次登录';
+ const sync=$('campus-sync');sync.disabled=syncRequesting||!!data.syncing;sync.textContent=sync.disabled?'正在同步…':'立即同步';sync.setAttribute('aria-busy',String(sync.disabled));
+ if(!syncRequesting&&!syncError)$('campus-sync-message').textContent=data.syncing?'校园数据读取完成后会逐项显示，可以继续查看和提交作业。':Object.keys(data.errors||{}).length?'部分来源尚未更新，可点击立即同步重试。':'后台每 5 分钟检查更新；返回页面或网络恢复时也会检查。';
  const issues=[...Object.entries(data.errors||{}).map(([k,v])=>`${k}：${v}`),...(data.warnings||[])];$('problems').hidden=!issues.length;const problem=clear('problem-list');issues.forEach(v=>problem.append(node('div',v,'notice')));
  const tis=data.tis||{},tasks=data.assignments||[],counts=courseworkCounts(tasks,data.assignment_coverage||[]),m=clear('metrics');metric(m,tis.semester||'—','当前学期');metric(m,tis.week??'—','教学周');metric(m,counts.value,counts.label);metric(m,(tis.exams||[]).length,'后续考试');if(data.weather?.condition)metric(m,`${data.weather.temperature??'—'}°C`,data.weather.condition);
  const cl=clear('classes'),cal=tis.calendar||{};cl.append(node('h3','今日课程'));
@@ -19,7 +22,16 @@ function renderDashboard(data){
  renderWeek(tis);renderAssignmentCoverage(data.assignment_coverage||[]);if(window.renderAssignments)window.renderAssignments(tasks);
  const ex=clear('exams');if(!(tis.exams||[]).length)empty(ex,'暂无已发布的后续考试');else tis.exams.forEach(e=>row(ex,e.KCMC||'考试',`${e.KSRQ||''} ${e.KSJTSJ||''} · ${e.JXLMC||''} ${e.JXCDMC||''}`));const ev=clear('evals');if(!(tis.pending_evals||[]).length)empty(ev,'暂无待评教');else tis.pending_evals.forEach(e=>row(ev,e.course,e.status));
 }
-async function refresh(){let delay=60000;try{const data=await campusJson('/api/status');renderDashboard(data);if(!data.updated_at||data.syncing||Object.keys(data.errors||{}).length)delay=5000;}catch(e){$('updated').textContent=`读取校园数据失败：${e.message}`;delay=5000;}finally{setTimeout(refresh,delay);}}
+async function refresh(){if(refreshing)return;refreshing=true;clearTimeout(refreshTimer);let delay=30000;try{const data=await campusJson('/api/status',{timeoutMs:10000});renderDashboard(data);if(!data.updated_at||data.syncing||Object.keys(data.errors||{}).length)delay=5000;}catch(e){$('updated').textContent=`读取校园数据失败：${e.message}`;delay=5000;}finally{refreshing=false;refreshTimer=setTimeout(refresh,delay);}}
+async function syncCampus(force=false){
+ if(syncRequesting)return;syncRequesting=true;syncError=false;const b=$('campus-sync');b.disabled=true;b.textContent='正在同步…';b.setAttribute('aria-busy','true');
+ try{const data=await campusJson('/api/status',{timeoutMs:10000});renderDashboard(data);const age=Date.now()-Date.parse(data.source_updated_at?.blackboard||'');if(!data.syncing&&(force||!Number.isFinite(age)||age>60000)){await campusPost('/api/sync',{});$('campus-sync-message').textContent='已开始后台同步，读取完成后自动显示。';}}
+ catch(e){syncError=true;$('campus-sync-message').textContent=e.message;}
+ finally{syncRequesting=false;b.disabled=false;b.textContent='立即同步';b.setAttribute('aria-busy','false');await refresh();}
+}
+$('campus-sync').onclick=()=>syncCampus(true);
+window.addEventListener('online',()=>syncCampus());
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncCampus();});
 async function loadVenues(){
  const b=$('venues-refresh');b.disabled=true;
  try{const data=await campusJson('/api/venues');notice($('venues-message'),(data.errors||[]).join('\n'));const l=clear('library-venues'),eh=clear('ehall-venues');if(!data.library?.length)empty(l,'场地列表未读取成功');(data.library||[]).forEach(r=>{const outer=row(l,r.name,r.total!=null?`${r.idle??'—'}/${r.total} 当前空闲`:'查看具体开放和预约情况');outer.append(link('查看与预约',`${apiBase}/venues/library/${encodeURIComponent(r.id)}`,'button'));});if(!data.ehall?.length)empty(eh,'暂无可查询的场地');(data.ehall||[]).forEach(r=>{const outer=row(eh,r.name,`${r.location||''} · ${r.kind_name||''}${r.needs_approval?' · 需审批':''}`);outer.append(link(r.bookable?'预约':'查看',`${apiBase}/venues/ehall/${encodeURIComponent(r.id)}`,`button${r.bookable?'':' secondary'}`));});
@@ -27,4 +39,4 @@ async function loadVenues(){
  }catch(e){notice($('venues-message'),e.message);}finally{b.disabled=false;}
 }
 $('venue-catalog-search').oninput=()=>{const q=$('venue-catalog-search').value.trim().toLowerCase();document.querySelectorAll('.venue-catalog .row').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'':'none');};
-$('venues-refresh').onclick=loadVenues;refresh();loadVenues();
+$('venues-refresh').onclick=loadVenues;syncCampus();loadVenues();

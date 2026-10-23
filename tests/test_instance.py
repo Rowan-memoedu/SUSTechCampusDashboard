@@ -43,6 +43,73 @@ def test_no_account_data_before_local_unlock_and_host_origin_validation(instance
     assert client.get("/api/status", headers=headers).json["assignments"][0]["private"] == "canary-secret"
 
 
+def test_local_authorization_survives_browser_session_and_old_cookie_is_upgraded(instance):
+    from http.cookies import SimpleCookie
+    rt, client, headers = instance
+    rt.configured.set()
+    response = client.post('/auth/unlock', json={'token': rt.token}, headers=headers)
+    cookies = SimpleCookie(response.headers['Set-Cookie'])
+    name, cookie = next(iter(cookies.items()))
+    assert int(cookie['max-age']) == 180 * 24 * 60 * 60
+    assert cookie['httponly'] and cookie['samesite'] == 'Strict'
+    reopened = client.application.test_client()
+    reopened.set_cookie(name, cookie.value, domain='127.0.0.1')
+    response = reopened.get('/api/status', headers=headers)
+    assert response.status_code == 200
+    assert 'Max-Age=' in response.headers['Set-Cookie']
+    rt.token = 'revoked-owner-token'
+    assert reopened.get('/api/status', headers=headers).status_code == 401
+
+
+def test_manual_sync_is_authenticated_csrf_protected_and_coalesced(instance):
+    rt, client, headers = instance
+    assert client.post('/api/sync', json={}, headers=headers).status_code == 401
+    unlock(rt, client, headers)
+    rt.configured.set()
+    assert client.post('/api/sync', json={}, headers=headers).status_code == 400
+    csrf = re.search(r'const roomCsrf="([^"]+)"', client.get('/', headers=headers).text)[1]
+    headers = {**headers, 'X-CSRF-Token': csrf}
+    result = client.post('/api/sync', json={}, headers=headers)
+    assert result.status_code == 202 and not result.json['already_running']
+    assert rt.sync_requested.is_set()
+    assert client.post('/api/sync', json={}, headers=headers).json['already_running']
+    rt.sync_requested.clear()
+    with app._sync_lock:
+        assert client.post('/api/sync', json={}, headers=headers).json['already_running']
+        assert not rt.sync_requested.is_set()
+
+
+def test_assignment_read_is_independent_of_batch_scan_and_keeps_http_workers_free(instance, monkeypatch):
+    from sustech_dashboard import blackboard_work, quotas
+    from types import SimpleNamespace
+    from concurrent.futures import ThreadPoolExecutor
+    rt, client, headers = instance
+    unlock(rt, client, headers)
+    rt.configured.set()
+    entered, finish = threading.Event(), threading.Event()
+    def attachments(cid):
+        entered.set()
+        assert finish.wait(5)
+        return []
+    monkeypatch.setattr(quotas, 'check_private_quota', lambda *args: None)
+    monkeypatch.setattr(app, 'Blackboard', lambda: SimpleNamespace(
+        current_courses=lambda: [{'id': 'course', 'name': 'Fixture'}],
+        attachments=attachments, unclassified=[], warnings=[]))
+    monkeypatch.setattr(blackboard_work, 'detail', lambda *args: {'status': 'not_submitted', 'can_submit': True})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        scan = pool.submit(app.scan_materials)
+        try:
+            assert entered.wait(2)
+            response = pool.submit(client.get, '/api/assignment/course/work', headers=headers).result(1)
+            assert response.status_code == 200 and response.json['can_submit']
+            with app._detail_slots, app._detail_slots:
+                assert client.get('/api/assignment/course/work', headers=headers).status_code == 503
+                assert client.get('/api/status', headers=headers).status_code == 200
+        finally:
+            finish.set()
+            scan.result(3)
+
+
 def test_uploaded_pdf_preview_is_private_inline_and_requires_form_csrf(instance):
     import io
     rt, client, headers = instance

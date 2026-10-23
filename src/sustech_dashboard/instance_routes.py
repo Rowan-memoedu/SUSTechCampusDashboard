@@ -11,6 +11,8 @@ from flask import abort, g, jsonify, redirect, render_template, request
 from . import __version__
 from .core import DATA_ROOT, DOWNLOAD_ROOT, load_json
 
+LOCAL_COOKIE_SECONDS = 180 * 24 * 60 * 60
+
 
 def register_instance(app, runtime, guard, csrf):
     from .execution import mode, hosted
@@ -77,6 +79,10 @@ def register_instance(app, runtime, guard, csrf):
 
     @app.after_request
     def privacy_headers(response):
+        if not cloud and secrets.compare_digest(request.cookies.get(cookie, ''), runtime.token):
+            # Upgrade existing session cookies without requiring another launch.
+            response.set_cookie(cookie, runtime.token, max_age=LOCAL_COOKIE_SECONDS,
+                                httponly=True, samesite='Strict', path='/')
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -96,7 +102,8 @@ def register_instance(app, runtime, guard, csrf):
         if not isinstance(token, str) or not secrets.compare_digest(token, runtime.token):
             abort(403)
         response = jsonify({"ok": True})
-        response.set_cookie(cookie, runtime.token, httponly=True, samesite="Strict", path="/")
+        response.set_cookie(cookie, runtime.token, max_age=LOCAL_COOKIE_SECONDS,
+                            httponly=True, samesite="Strict", path="/")
         return response
 
     @app.get("/setup")

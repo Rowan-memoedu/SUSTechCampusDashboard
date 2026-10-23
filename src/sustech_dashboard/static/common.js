@@ -1,4 +1,11 @@
-const campusFetch=(path,options)=>fetch(apiBase+path,options);
+async function campusFetch(path,options={}){
+ const {timeoutMs=((options.method||'GET').toUpperCase()==='GET'?90000:0),...init}=options;
+ if(!timeoutMs)return fetch(apiBase+path,init);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
+ try{return await fetch(apiBase+path,{...init,signal:init.signal?AbortSignal.any([init.signal,controller.signal]):controller.signal});}
+ catch(error){if(controller.signal.aborted)throw Error('读取超时，请重新读取；后台同步会继续');throw error;}
+ finally{clearTimeout(timer);}
+}
 const $=id=>document.getElementById(id);
 function node(tag,text='',cls=''){const e=document.createElement(tag);e.textContent=String(text??'');if(cls)e.className=cls;return e;}
 function clear(id){const e=$(id);e.replaceChildren();return e;}

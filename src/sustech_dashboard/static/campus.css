@@ -5,3 +5,5 @@
 .header-actions{flex-wrap:wrap}.header-actions>a,.header-actions button{white-space:nowrap}.account-form{display:grid;gap:14px;max-width:620px}.account-form>label{display:grid;gap:5px}.account-form>label.check-option{display:flex;align-items:flex-start;gap:8px}.check-option input{flex:none;margin-top:5px}.account-form>button{justify-self:start}
 #assignment-count{white-space:normal;max-width:50%;flex-shrink:0}#assignment-coverage .row-sub{overflow-wrap:anywhere}#materials-panel>.muted{overflow-wrap:anywhere}
 .file-chip>span{min-width:0;flex:1}.file-chip>.actions{flex-shrink:0;flex-wrap:nowrap}.file-chip .button,.file-chip button{white-space:nowrap}
+/* Hallmark · component: sync control · existing campus theme; P4 H4 E4 S5 R5 V3 */
+#campus-sync{min-height:44px;white-space:nowrap;flex-shrink:0;border:1px solid transparent}#campus-sync:hover:not(:disabled){border-color:var(--blue)}#campus-sync:active:not(:disabled){transform:translateY(1px)}#campus-sync:focus-visible{outline-color:var(--blue)}#campus-sync-message{overflow-wrap:anywhere}

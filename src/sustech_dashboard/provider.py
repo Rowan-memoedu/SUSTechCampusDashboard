@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import hashlib
 import json
+import threading
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -19,6 +20,7 @@ from .academic_calendar import semester_scope
 
 BB_BASE = "https://bb.sustech.edu.cn"
 COURSE_CUTOFF = date(2026, 9, 1)
+_auth_lock = threading.Lock()
 
 
 def attachment_version(attachment, content):
@@ -70,26 +72,46 @@ def term_matches(term: dict[str, Any], semester: dict[str, Any], today: date) ->
 
 class Blackboard:
     def __init__(self) -> None:
-        from sustech_survival.sso import BBAuth
-
-        auth = BBAuth()
-        ok, reason = auth.ensure()
-        if not ok:
-            raise RuntimeError(f"Blackboard 登录失败：{reason}")
-        self.session = auth.session
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
-        self.session.mount(BB_BASE, HTTPAdapter(max_retries=Retry(
-            total=2, backoff_factor=1, allowed_methods={"GET"},
-            status_forcelist={429, 502, 503, 504},
-        )))
+        self._open_session()
         self.warnings: list[str] = []
         self.unclassified: list[str] = []
         self._courses: list[dict[str, str]] | None = None
         self.metrics = {'visibility_requests': 0, 'personal_state_requests': 0}
 
+    def _open_session(self, *, refresh=False):
+        from sustech_survival.sso import BBAuth
+        if not _auth_lock.acquire(timeout=5):
+            raise ValueError('Blackboard 正在恢复登录，请稍后重新读取')
+        try:
+            auth = BBAuth()
+            # BBAuth builds a separate requests.Session on each access. Only
+            # its shared login cache needs serialization, not whole scans.
+            if refresh and getattr(self, '_auth_generation', None) == auth._session_time:
+                if not auth.refresh():
+                    raise RuntimeError('Blackboard authentication failed')
+            ok, reason = auth.ensure()
+            if not ok:
+                raise RuntimeError(f"Blackboard 登录失败：{reason}")
+            self.session = auth.session
+            self._auth_generation = auth._session_time
+        finally:
+            _auth_lock.release()
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        self.session.mount(BB_BASE, HTTPAdapter(max_retries=Retry(
+            total=1, read=0, backoff_factor=.5, allowed_methods={"GET"},
+            respect_retry_after_header=False,
+            status_forcelist={429, 502, 503, 504},
+        )))
+
     def get(self, path: str, *, stream: bool = False):
-        response = self.session.get(_api_path(path), timeout=(10, 60), stream=stream)
+        response = self.session.get(_api_path(path), timeout=(10, 60 if stream else 20), stream=stream)
+        if response.status_code == 401 or urlparse(response.url).hostname == 'cas.sustech.edu.cn':
+            response.close()
+            self.session.close()
+            self._open_session(refresh=True)
+            # Retry only this read. Submission POSTs are never replayed.
+            response = self.session.get(_api_path(path), timeout=(10, 60 if stream else 20), stream=stream)
         category = 'personal_state_requests' if '/users/' in path or '/gradebook/' in path else 'visibility_requests'
         if hasattr(self, 'metrics'):
             self.metrics[category] += 1 + len(response.history) + len(getattr(getattr(response.raw, 'retries', None), 'history', ()))
@@ -116,10 +138,8 @@ class Blackboard:
     def current_courses(self) -> list[dict[str, str]]:
         if self._courses is not None:
             return self._courses
-        from sustech_survival.tis.schedule import current_semester
-
-        semester = current_semester()
-        self._scope = semester_scope(semester)
+        self._scope = semester_scope()
+        semester = self._scope['semester']
         me = self.json("/learn/api/public/v1/users/me")
         enrollments = self.results(f"/learn/api/public/v1/users/{me['id']}/courses")
         selected: list[dict[str, str]] = []
@@ -129,14 +149,14 @@ class Blackboard:
             cid = enrollment.get("courseId")
             if not cid:
                 continue
-            course = self.json(f"/learn/api/public/v1/courses/{cid}")
-            name = course.get("name") or cid
             enrolled = parse_dt(enrollment.get('created'))
             if enrolled is None:
-                unknown.append(name)
+                unknown.append(cid)
                 continue
             if not self._scope.get('enrollment_start', self._scope['start']) <= enrolled.date() <= self._scope['end']:
                 continue
+            course = self.json(f"/learn/api/public/v1/courses/{cid}")
+            name = course.get("name") or cid
             tid = course.get("termId")
             if tid:
                 if tid not in term_cache:

@@ -23,9 +23,10 @@ from .execution import mode, hosted, direct_downloads
 
 SNAPSHOT_PATH = DATA_ROOT / "snapshot.json"
 BASELINE_PATH = DATA_ROOT / "attachments.json"
-SYNC_INTERVAL_SECONDS = 30 * 60
+SYNC_INTERVAL_SECONDS = 5 * 60
 _sync_lock = threading.Lock()
 _bb_lock = threading.Lock()
+_detail_slots = threading.BoundedSemaphore(2)
 CLOUD = mode() != 'local'
 MANIFEST_PATH = DATA_ROOT / "manifest.json"
 MATERIALS_DB = DATA_ROOT / "materials.sqlite3"
@@ -66,23 +67,22 @@ def scan_materials() -> dict:
         return load_json(MANIFEST_PATH, {})
     _scan_state.update(running=True, error=None)
     try:
-        with _bb_lock:
-            bb = Blackboard()
-            courses = bb.current_courses()
-            items = []
-            for course in courses:
-                items.extend(dict(item, course_id=course["id"], course_name=course["name"])
-                             for item in bb.attachments(course["id"]))
-            if bb.unclassified:
-                raise RuntimeError("附件所属课程尚未全部确认")
-            if hosted():
-                from .shared_metadata import configured_client
-                configured_client().call('count', metrics=bb.metrics)
-            manifest = {"updated_at": datetime.now(CHINA_TZ).isoformat(), "courses": courses,
-                        "items": items, "warnings": bb.warnings}
-            if getattr(bb, '_scope', None):
-                manifest['semester_scope'] = {k: str(bb._scope[k]) for k in ('enrollment_start', 'start', 'end')}
-            save_json(MANIFEST_PATH, manifest)
+        bb = Blackboard()
+        courses = bb.current_courses()
+        items = []
+        for course in courses:
+            items.extend(dict(item, course_id=course["id"], course_name=course["name"])
+                         for item in bb.attachments(course["id"]))
+        if bb.unclassified:
+            raise RuntimeError("附件所属课程尚未全部确认")
+        if hosted():
+            from .shared_metadata import configured_client
+            configured_client().call('count', metrics=bb.metrics)
+        manifest = {"updated_at": datetime.now(CHINA_TZ).isoformat(), "courses": courses,
+                    "items": items, "warnings": bb.warnings}
+        if getattr(bb, '_scope', None):
+            manifest['semester_scope'] = {k: str(bb._scope[k]) for k in ('enrollment_start', 'start', 'end')}
+        save_json(MANIFEST_PATH, manifest)
         from .materials_store import MaterialsStore
         MaterialsStore(MATERIALS_DB).scan_finished(manifest)
         _scan_last = time.monotonic()
@@ -137,14 +137,13 @@ def sync_all() -> dict[str, Any]:
             if key in previous:
                 snapshot[key] = previous[key]
         try:
-            with _bb_lock:
-                bb = Blackboard()
-                courses = bb.current_courses()
-                assignments = bb.assignments(previous=previous.get('assignments', []),
-                                             previous_scope=previous.get('semester_scope'))
-                if hosted():
-                    from .shared_metadata import configured_client
-                    configured_client().call('count', metrics=bb.metrics)
+            bb = Blackboard()
+            courses = bb.current_courses()
+            assignments = bb.assignments(previous=previous.get('assignments', []),
+                                         previous_scope=previous.get('semester_scope'))
+            if hosted():
+                from .shared_metadata import configured_client
+                configured_client().call('count', metrics=bb.metrics)
             snapshot["blackboard_courses"] = courses
             snapshot["assignments"] = assignments
             snapshot["assignment_coverage"] = getattr(bb, 'assignment_coverage', [])
@@ -160,6 +159,7 @@ def sync_all() -> dict[str, Any]:
                 errors=['source_unavailable']) for c in snapshot['assignment_coverage']]
             logging.error("Blackboard sync failed: %s", type(exc).__name__)
             snapshot["warnings"].append("Blackboard 查询失败时保留上次成功数据；请核对各来源的成功同步时间")
+        save_json(SNAPSHOT_PATH, snapshot)
         try:
             snapshot["tis"] = read_tis()
             snapshot["source_updated_at"]["tis"] = datetime.now(CHINA_TZ).isoformat()
@@ -167,6 +167,7 @@ def sync_all() -> dict[str, Any]:
         except Exception as exc:
             snapshot["errors"]["tis"] = _public_error(exc)
             logging.error("TIS sync failed: %s", type(exc).__name__)
+        save_json(SNAPSHOT_PATH, snapshot)
         try:
             snapshot["bookings"] = read_bookings()
             snapshot["source_updated_at"]["bookings"] = datetime.now(CHINA_TZ).isoformat()
@@ -290,7 +291,14 @@ def create_app(runtime=None) -> Flask:
             local_request()
             from .blackboard_work import detail
             from .actions import Actions
-            with _bb_lock:result=detail(Blackboard(),cid,iid,request.script_root)
+            # A slow school must not occupy every HTTP worker. Each read has
+            # its own session and does not wait for batch scans or downloads.
+            if not _detail_slots.acquire(blocking=False):
+                return jsonify(error='正在读取其他作业，请稍后重新读取'), 503
+            try:
+                result=detail(Blackboard(),cid,iid,request.script_root)
+            finally:
+                _detail_slots.release()
             target=f'assignment:{cid}:{iid}'
             if result.get('action_status', result['status'])=='submitted':Actions().confirm(target,{'state':'confirmed','status':'submitted'})
             result['operation']=Actions().pending(target)
@@ -462,6 +470,19 @@ def create_app(runtime=None) -> Flask:
         if CLOUD:
             snapshot["downloads"] = load_json(DATA_ROOT / "download-status.json", {"mode": "agent"})
         return jsonify(snapshot)
+
+    @app.post('/api/sync')
+    def request_sync():
+        try:
+            local_request(write=True)
+            if runtime is None:
+                return jsonify(error='当前运行端不支持后台同步'), 503
+            running = _sync_lock.locked() or runtime.sync_requested.is_set()
+            if not running:
+                runtime.request_sync()
+            return jsonify(accepted=True, syncing=True, already_running=running), 202
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
 
     @app.get("/api/attachments")
     def attachment_manifest():
