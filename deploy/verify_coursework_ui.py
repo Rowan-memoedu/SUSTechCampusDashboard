@@ -118,11 +118,15 @@ def main():
             assert response.value.headers['content-disposition'].startswith('inline;')
             opened.value.wait_for_load_state('domcontentloaded')
             assert opened.value.url==origin+'/api/assignment/preview-pdf'
-            # Chrome's private stylesheet URL differs between versions. Wait
-            # for the actual PDF reader element instead of sleeping and testing
-            # an implementation-specific asset name. Keep evidence on failure.
+            # Chrome exposes either an embedded document or only the native
+            # extension shell (its reader has a closed DOM). Do not pin a
+            # private extension ID/path. Retain a screenshot for visual review.
             try:
-                opened.value.wait_for_function("!!document.querySelector('embed[type=\"application/pdf\"],object[type=\"application/pdf\"],pdf-viewer')", timeout=30000)
+                opened.value.wait_for_function("""() =>
+                    !!document.querySelector('embed[type="application/pdf"],object[type="application/pdf"],pdf-viewer') ||
+                    [...document.querySelectorAll('link[href]')].some(e=>{
+                        const u=new URL(e.href);return u.protocol==='chrome-extension:' && /pdf/i.test(u.pathname);
+                    })""", timeout=30000)
                 report['pdf_reader_elements'] = opened.value.locator('embed,object,pdf-viewer').evaluate_all(
                     "nodes=>nodes.map(e=>({tag:e.tagName,type:e.getAttribute('type')}))")
             finally:
