@@ -6,6 +6,39 @@ import re
 from pathlib import Path
 import tempfile
 import threading
+import time
+
+
+def native_pdf_reader(context, page, output):
+    """Inspect Chrome's user-agent shadow tree, not its ordinary page DOM."""
+    cdp = context.new_cdp_session(page)
+    deadline = time.monotonic() + 30
+    def nodes(value):
+        if isinstance(value, dict):
+            if 'nodeName' in value:
+                yield value
+            for child in value.values():
+                yield from nodes(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from nodes(child)
+    try:
+        while True:
+            tree = cdp.send('DOM.getDocument', {'depth': -1, 'pierce': True})
+            found = []
+            for node in nodes(tree):
+                attributes = node.get('attributes', [])
+                attrs = dict(zip(attributes[::2], attributes[1::2]))
+                if node['nodeName'].upper() in {'EMBED', 'OBJECT', 'IFRAME'} and attrs.get('type') in {'application/pdf', 'application/x-google-chrome-pdf'}:
+                    found.append({'tag': node['nodeName'], 'type': attrs['type']})
+            if found:
+                return found
+            if time.monotonic() >= deadline:
+                (output/'pdf-reader-tree.json').write_text(json.dumps(tree), encoding='utf-8')
+                raise AssertionError('Native PDF reader not present in browser shadow tree')
+            page.wait_for_timeout(100)
+    finally:
+        cdp.detach()
 
 
 def main():
@@ -118,17 +151,10 @@ def main():
             assert response.value.headers['content-disposition'].startswith('inline;')
             opened.value.wait_for_load_state('domcontentloaded')
             assert opened.value.url==origin+'/api/assignment/preview-pdf'
-            # Chrome exposes either an embedded document or only the native
-            # extension shell (its reader has a closed DOM). Do not pin a
-            # private extension ID/path. Retain a screenshot for visual review.
+            # The native reader lives in a user-agent shadow root on newer
+            # Chrome. Preserve visual evidence as well as the actual embed.
             try:
-                opened.value.wait_for_function("""() =>
-                    !!document.querySelector('embed[type="application/pdf"],object[type="application/pdf"],pdf-viewer') ||
-                    [...document.querySelectorAll('link[href]')].some(e=>{
-                        const u=new URL(e.href);return u.protocol==='chrome-extension:' && /pdf/i.test(u.pathname);
-                    })""", timeout=30000)
-                report['pdf_reader_elements'] = opened.value.locator('embed,object,pdf-viewer').evaluate_all(
-                    "nodes=>nodes.map(e=>({tag:e.tagName,type:e.getAttribute('type')}))")
+                report['pdf_reader_elements'] = native_pdf_reader(context, opened.value, args.output)
             finally:
                 (args.output/'pdf-reader.html').write_text(opened.value.content(), encoding='utf-8')
                 opened.value.screenshot(path=str(args.output/'pdf-reader.png'))
