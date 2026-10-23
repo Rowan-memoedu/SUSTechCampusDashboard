@@ -118,10 +118,16 @@ def main():
             assert response.value.headers['content-disposition'].startswith('inline;')
             opened.value.wait_for_load_state('domcontentloaded')
             assert opened.value.url==origin+'/api/assignment/preview-pdf'
-            opened.value.wait_for_timeout(1500)  # Native PDF viewer paints after DOM readiness.
-            # Headless Chrome exposes only its native reader shell (also for
-            # ordinary GET PDFs); response bytes are covered by test_instance.
-            assert 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css' in opened.value.content()
+            # Chrome's private stylesheet URL differs between versions. Wait
+            # for the actual PDF reader element instead of sleeping and testing
+            # an implementation-specific asset name. Keep evidence on failure.
+            try:
+                opened.value.wait_for_function("!!document.querySelector('embed[type=\"application/pdf\"],object[type=\"application/pdf\"],pdf-viewer')", timeout=30000)
+                report['pdf_reader_elements'] = opened.value.locator('embed,object,pdf-viewer').evaluate_all(
+                    "nodes=>nodes.map(e=>({tag:e.tagName,type:e.getAttribute('type')}))")
+            finally:
+                (args.output/'pdf-reader.html').write_text(opened.value.content(), encoding='utf-8')
+                opened.value.screenshot(path=str(args.output/'pdf-reader.png'))
             opened.value.close()
             report['pdf_preview']={'new_tab':True,'local_only':True,'inline_pdf':True,'native_reader':True,'school_writes':0}
             submitted=selected.get_by_role('link',name='预览已提交的 已提交.PDF',exact=True)
