@@ -29,7 +29,10 @@ def execute(job, fetch, ledger=None):
         with ledger.connect() as db:
             row = db.execute('SELECT result,object FROM actions WHERE id=?', (jid,)).fetchone()
         if row and row[0] and row[1] == job['target']:
-            return json.loads(row[0])
+            result=json.loads(row[0])
+            if result.get('state')=='sending':
+                return {**result,'state':'needs_review','message':UNCERTAIN}
+            return result
         return {'state': 'needs_review', 'message': UNCERTAIN}
 
     def perform():

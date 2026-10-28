@@ -7,6 +7,13 @@ from contextvars import ContextVar
 from .core import DATA_ROOT
 
 _sent=ContextVar('campus_action_sent',default=False)
+_evidence=ContextVar('campus_action_evidence',default=None)
+
+
+def record_evidence(value):
+    """Persist readback context in the existing action before an external write."""
+    callback=_evidence.get()
+    if callback is not None:callback(value)
 
 
 def mark_sent():
@@ -39,6 +46,13 @@ class Actions:
             if row: raise ValueError('上次操作结果尚未确认，请先核对官方记录，不能重复提交')
             db.execute('INSERT INTO actions VALUES (?,?,?,NULL,?)',(token,target,'sending',time.time()))
         context_token=_sent.set(False)
+        receipt={}
+        def checkpoint(value):
+            receipt.clear();receipt.update(value)
+            with self.connect() as db:
+                db.execute('UPDATE actions SET result=? WHERE id=?',
+                    (json.dumps({'state':'sending','receipt':receipt},ensure_ascii=False),token))
+        evidence_token=_evidence.set(checkpoint)
         try:
             result=work()
         except ValueError as exc:
@@ -48,6 +62,8 @@ class Actions:
             result={'state':'needs_review','message':'网络或官方回执未能确认；请查看最新官方记录，避免重复提交'}
         finally:
             _sent.reset(context_token)
+            _evidence.reset(evidence_token)
+        if receipt:result.setdefault('receipt',receipt)
         with self.connect() as db:
             db.execute('UPDATE actions SET state=?,result=?,at=? WHERE id=?',(result['state'],json.dumps(result,ensure_ascii=False),time.time(),token))
         return result

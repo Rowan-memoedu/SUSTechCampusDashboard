@@ -101,11 +101,12 @@ def test_selection_requires_official_membership_and_bid_readback(monkeypatch,act
 def test_print_upload_uses_tempfile_then_verifies_new_id_and_options(monkeypatch,tmp_path):
     monkeypatch.setattr(printing,'DATA_ROOT',tmp_path)
     calls=[];sent=[]
-    job=SimpleNamespace(dw_job_id=7,file_name='a.pdf',dw_copies=2,is_color=False,is_duplex=True)
+    job=SimpleNamespace(dw_job_id=7,file_name='a.pdf',dw_copies=2,is_color=False,is_duplex=True,duplex_label='双面长边',paper='A4')
     def jobs():calls.append(1);return [] if len(calls)==1 else [job]
     def upload(path,**kw):
         sent.append(kw);assert path.read_bytes()==b'%PDF test';return SimpleNamespace(ok=True)
     monkeypatch.setattr(printing,'client',lambda:SimpleNamespace(list_print_jobs=jobs,upload_print=upload))
+    monkeypatch.setattr(printing,'send_upload',lambda *a:sent.append({'post':True}) or {'state':'accepted'})
     opts=printing.options({'copies':2,'duplex':3})
     assert printing.upload('a.pdf',b'%PDF test',opts)['state']=='confirmed'
     assert sent[0]['dry_run'] is True and len(sent)==2

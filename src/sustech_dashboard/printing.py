@@ -3,10 +3,12 @@ import hashlib
 import json
 import tempfile
 import threading
+import time
+from urllib.parse import urlparse,parse_qs,urljoin
 from datetime import date
 from pathlib import Path
 
-from .actions import mark_sent
+from .actions import mark_sent,record_evidence,Actions
 from .core import DATA_ROOT, safe_name
 from .provider import _jsonable
 from .study import now
@@ -45,8 +47,11 @@ def client():
 
 def overview():
     c=client()
+    jobs=c.list_print_jobs()
+    reconciled=reconcile_pending(jobs)
     return {'stations':_jsonable(c.list_stations()),'groups':_jsonable(c.list_server_groups()),
-            'jobs':_jsonable(c.list_print_jobs()),'scans':_jsonable(c.list_scan_jobs()),'updated_at':now()}
+            'jobs':_jsonable(jobs),'scans':_jsonable(c.list_scan_jobs()),'updated_at':now(),
+            'reconciled_uploads':reconciled}
 
 
 def history(args):
@@ -76,18 +81,90 @@ def upload_target(filename, content, opts):
 
 def upload(filename, content, opts):
     filename=validate_upload(filename,content)
-    c=client();before={j.dw_job_id for j in c.list_print_jobs()}
-    root=DATA_ROOT/'print-staging';root.mkdir(parents=True,exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=root) as tmp:
-        path=Path(tmp)/filename;path.write_bytes(content)
-        c.upload_print(path,**opts,dry_run=True)
-        mark_sent()
-        result=c.upload_print(path,**opts)
-    if not result.ok:return {'state':'rejected','message':str(result.message or '打印系统拒绝上传')[:300]}
-    new=[j for j in c.list_print_jobs() if j.dw_job_id not in before and j.file_name==filename]
-    valid=[j for j in new if j.dw_copies==opts['copies'] and j.is_color==(opts['color']==2) and j.is_duplex==(opts['duplex']!=1)]
-    if len(valid)==1:return {'state':'confirmed','message':'已在官方打印队列中核对到新文档；请到打印点刷卡确认并打印','job_id':valid[0].dw_job_id}
-    return {'state':'needs_review','message':'上传已被接收，队列可能正在转换文档；请刷新队列核对，暂不重复上传'}
+    phase='connect'
+    try:
+        c=client();before=[j.dw_job_id for j in c.list_print_jobs()]
+        phase='prepare'
+        root=DATA_ROOT/'print-staging';root.mkdir(parents=True,exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=root) as tmp:
+            path=Path(tmp)/filename;path.write_bytes(content)
+            c.upload_print(path,**opts,dry_run=True)
+            receipt={'filename':filename,'options':opts,'before_ids':before,'at':time.time()}
+            record_evidence(receipt)
+            phase='send';mark_sent()
+            try:result=send_upload(c,path,opts)
+            except Exception as exc:
+                result={'state':'needs_review','message':'上传连接中断，正在核对官方队列；不会自动重新上传','error_type':type(exc).__name__}
+            receipt['upload_state']=result['state'];record_evidence(receipt)
+    except Exception as exc:
+        if phase=='send':return {'state':'needs_review','message':'上传已发送，本机回执处理未完成；请刷新队列核对，暂不重复上传','phase':phase,'error_type':type(exc).__name__}
+        return {'state':'rejected','message':'文件尚未上传：连接或准备失败，请检查校园打印连接后重试','phase':phase,'error_type':type(exc).__name__}
+    if result['state']=='rejected':return result
+    for attempt in range(4):
+        try:
+            match=match_upload(c.list_print_jobs(),receipt)
+            if match:return confirmed_upload(match)
+        except Exception as exc:
+            result['readback_error']=type(exc).__name__
+        if attempt<3:time.sleep(1)
+    return {**result,'state':'needs_review','message':'上传结果待队列确认；系统只复查队列，不会重新上传。请稍后刷新打印队列。'}
+
+
+def send_upload(c,path,opts):
+    """Use the official form and inspect its redirect without resending a POST."""
+    base='https://pms.sustech.edu.cn'
+    result_page=base+'/client/new/cprintPc/printDoc.html'
+    data={key:str(opts[value]) for key,value in {'dwColor':'color','dwPaperId':'paper','dwDuplex':'duplex','dwFrom':'page_from','dwTo':'page_to','dwCopies':'copies'}.items()}
+    data['BackURL']=result_page+'?t='+str(int(time.time()*1000))
+    with path.open('rb') as stream:
+        response=c.session.post(base+'/api/client/CloudPrint/Upload',files={'szPath':(path.name,stream)},data=data,
+            headers={'Origin':base,'Referer':base+'/client/new/cprintPc/cprint.html'},timeout=(10,120),allow_redirects=False)
+    with response:
+        if response.status_code==413:return {'state':'rejected','message':'学校打印系统拒绝此文件：文件过大'}
+        code=None;message=''
+        if response.status_code in (301,302,303,307,308):
+            redirect=urlparse(urljoin(base,response.headers.get('Location','')))
+            if redirect.scheme=='https' and redirect.netloc=='pms.sustech.edu.cn' and redirect.path=='/client/new/cprintPc/printDoc.html':
+                query=parse_qs(redirect.query);code=query.get('code',[None])[0];message=query.get('message',[''])[0]
+        else:
+            try:body=response.json()
+            except (ValueError,TypeError):body=None
+            if isinstance(body,dict):code=body.get('code');message=body.get('message','')
+        if str(code)=='0':return {'state':'accepted','message':'官方已接收上传，正在核对打印队列'}
+        if code is not None:
+            from bs4 import BeautifulSoup
+            detail=BeautifulSoup(str(message),'html.parser').get_text()[:200]
+            return {'state':'rejected','message':'学校打印系统拒绝上传'+('：'+detail if detail else '')}
+        return {'state':'needs_review','message':'上传回执未包含可核对的结果，正在复查队列','http_status':response.status_code}
+
+
+def match_upload(jobs,receipt):
+    if time.time()-receipt['at']>900:return None
+    before={str(value) for value in receipt['before_ids']}
+    opts=receipt['options'];expected={1:'单面',2:'双面短边',3:'双面长边'}[opts['duplex']]
+    matches=[j for j in jobs if str(j.dw_job_id) not in before and j.file_name==receipt['filename']
+        and int(j.dw_copies)==opts['copies'] and j.is_color==(opts['color']==2)
+        and j.duplex_label==expected and (opts['paper']==-1 or j.paper=={8:'A3',9:'A4'}[opts['paper']])]
+    return matches[0] if len(matches)==1 else None
+
+
+def confirmed_upload(job):
+    return {'state':'confirmed','message':'已在官方打印队列核对文件和打印设置；请到打印点刷卡确认并打印','job_id':job.dw_job_id}
+
+
+def reconcile_pending(jobs,ledger=None):
+    ledger=ledger or Actions();results=[]
+    with ledger.connect() as db:
+        rows=db.execute("SELECT id,object,result FROM actions WHERE object LIKE 'print:upload:%' AND state IN ('sending','needs_review')").fetchall()
+        for token,target,raw in rows:
+            receipt=json.loads(raw or '{}').get('receipt')
+            if not receipt or receipt.get('upload_state')=='rejected':continue
+            job=match_upload(jobs,receipt)
+            if job:
+                result={**confirmed_upload(job),'receipt':receipt}
+                db.execute("UPDATE actions SET state='confirmed',result=? WHERE id=? AND state IN ('sending','needs_review')",(json.dumps(result,ensure_ascii=False),token))
+                results.append({**result,'operation_id':token})
+    return results
 
 
 def validate_upload(filename,content):
