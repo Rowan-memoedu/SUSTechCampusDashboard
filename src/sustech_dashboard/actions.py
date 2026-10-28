@@ -56,7 +56,8 @@ class Actions:
                 db.execute('BEGIN IMMEDIATE')
                 if value.get('guard'):
                     others=db.execute("SELECT result FROM actions WHERE id!=? AND state IN ('sending','needs_review')",(token,)).fetchall()
-                    if any(json.loads(row[0] or '{}').get('receipt',{}).get('guard')==value['guard'] for row in others):
+                    prior=[json.loads(row[0] or '{}').get('receipt') for row in others]
+                    if any(isinstance(item,dict) and item.get('guard')==value['guard'] for item in prior):
                         raise PendingAction('同名文档的上次上传仍待核对，请先刷新打印队列，不能重复发送')
                 db.execute('UPDATE actions SET result=? WHERE id=?',
                     (json.dumps({'state':'sending','receipt':receipt},ensure_ascii=False),token))
