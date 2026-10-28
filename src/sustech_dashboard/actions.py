@@ -9,6 +9,9 @@ from .core import DATA_ROOT
 _sent=ContextVar('campus_action_sent',default=False)
 _evidence=ContextVar('campus_action_evidence',default=None)
 
+class PendingAction(ValueError):
+    pass
+
 
 def record_evidence(value):
     """Persist readback context in the existing action before an external write."""
@@ -50,6 +53,11 @@ class Actions:
         def checkpoint(value):
             receipt.clear();receipt.update(value)
             with self.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                if value.get('guard'):
+                    others=db.execute("SELECT result FROM actions WHERE id!=? AND state IN ('sending','needs_review')",(token,)).fetchall()
+                    if any(json.loads(row[0] or '{}').get('receipt',{}).get('guard')==value['guard'] for row in others):
+                        raise PendingAction('同名文档的上次上传仍待核对，请先刷新打印队列，不能重复发送')
                 db.execute('UPDATE actions SET result=? WHERE id=?',
                     (json.dumps({'state':'sending','receipt':receipt},ensure_ascii=False),token))
         evidence_token=_evidence.set(checkpoint)

@@ -76,3 +76,20 @@ def test_agent_crashed_checkpoint_is_uncertain_not_replayed(tmp_path):
         db.execute('INSERT INTO actions VALUES (?,?,?,?,?)',(token,target,'sending',json.dumps({'state':'sending','receipt':receipt()}),time.time()))
     result=execute({'id':token,'kind':'upload','payload':{},'target':target,'recovery_only':True},lambda _:pytest.fail('Never upload during recovery'),ledger)
     assert result['state']=='needs_review' and result['receipt']['filename']=='sample.pdf'
+
+def test_same_name_pending_documents_cannot_share_one_queue_confirmation(tmp_path):
+    ledger=Actions(tmp_path/'actions.sqlite3')
+    with ledger.connect() as db:
+        for target in ('first-content','different-content'):
+            db.execute('INSERT INTO actions VALUES (?,?,?,?,?)',(str(uuid.uuid4()),'print:upload:'+target,'needs_review',json.dumps({'state':'needs_review','receipt':receipt()}),time.time()))
+    assert printing.reconcile_pending([job()],ledger)==[]
+
+def test_same_named_different_content_is_blocked_before_second_post(tmp_path):
+    from sustech_dashboard.actions import record_evidence,mark_sent
+    ledger=Actions(tmp_path/'actions.sqlite3');sent=[]
+    def work():
+        record_evidence({'guard':'same-name-and-settings'})
+        sent.append(1);mark_sent();raise ConnectionError()
+    assert ledger.run(str(uuid.uuid4()),'print:upload:content-A',work)['state']=='needs_review'
+    assert ledger.run(str(uuid.uuid4()),'print:upload:content-B',work)['state']=='rejected'
+    assert sent==[1]

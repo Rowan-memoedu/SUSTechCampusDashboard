@@ -8,7 +8,7 @@ from urllib.parse import urlparse,parse_qs,urljoin
 from datetime import date
 from pathlib import Path
 
-from .actions import mark_sent,record_evidence,Actions
+from .actions import mark_sent,record_evidence,Actions,PendingAction
 from .core import DATA_ROOT, safe_name
 from .provider import _jsonable
 from .study import now
@@ -90,6 +90,7 @@ def upload(filename, content, opts):
             path=Path(tmp)/filename;path.write_bytes(content)
             c.upload_print(path,**opts,dry_run=True)
             receipt={'filename':filename,'options':opts,'before_ids':before,'at':time.time()}
+            receipt['guard']='print-name:'+hashlib.sha256((filename+json.dumps(opts,sort_keys=True)).encode()).hexdigest()
             record_evidence(receipt)
             phase='send';mark_sent()
             try:result=send_upload(c,path,opts)
@@ -97,6 +98,7 @@ def upload(filename, content, opts):
                 result={'state':'needs_review','message':'上传连接中断，正在核对官方队列；不会自动重新上传','error_type':type(exc).__name__}
             receipt['upload_state']=result['state'];record_evidence(receipt)
     except Exception as exc:
+        if isinstance(exc,PendingAction):return {'state':'rejected','message':str(exc),'phase':phase}
         if phase=='send':return {'state':'needs_review','message':'上传已发送，本机回执处理未完成；请刷新队列核对，暂不重复上传','phase':phase,'error_type':type(exc).__name__}
         return {'state':'rejected','message':'文件尚未上传：连接或准备失败，请检查校园打印连接后重试','phase':phase,'error_type':type(exc).__name__}
     if result['state']=='rejected':return result
@@ -155,15 +157,22 @@ def confirmed_upload(job):
 def reconcile_pending(jobs,ledger=None):
     ledger=ledger or Actions();results=[]
     with ledger.connect() as db:
+        used={str(json.loads(row[0] or '{}').get('job_id')) for row in db.execute("SELECT result FROM actions WHERE object LIKE 'print:upload:%' AND state='confirmed'")}
         rows=db.execute("SELECT id,object,result FROM actions WHERE object LIKE 'print:upload:%' AND state IN ('sending','needs_review')").fetchall()
+        candidates=[]
         for token,target,raw in rows:
             receipt=json.loads(raw or '{}').get('receipt')
             if not receipt or receipt.get('upload_state')=='rejected':continue
-            job=match_upload(jobs,receipt)
+            job=match_upload([j for j in jobs if str(j.dw_job_id) not in used],receipt)
             if job:
-                result={**confirmed_upload(job),'receipt':receipt}
-                db.execute("UPDATE actions SET state='confirmed',result=? WHERE id=? AND state IN ('sending','needs_review')",(json.dumps(result,ensure_ascii=False),token))
-                results.append({**result,'operation_id':token})
+                candidates.append((token,receipt,job))
+        for token,receipt,job in candidates:
+            if sum(str(other.dw_job_id)==str(job.dw_job_id) for _,_,other in candidates)!=1:continue
+            if str(job.dw_job_id) in used:continue
+            used.add(str(job.dw_job_id))
+            result={**confirmed_upload(job),'receipt':receipt}
+            db.execute("UPDATE actions SET state='confirmed',result=? WHERE id=? AND state IN ('sending','needs_review')",(json.dumps(result,ensure_ascii=False),token))
+            results.append({**result,'operation_id':token})
     return results
 
 

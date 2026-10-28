@@ -33,7 +33,7 @@ def main():
                 'jobs':[{'dw_job_id':1,'file_name':'回执样例.pdf','date_str':'2026.10.28','time_str':'12:00','dw_total_pages':2,'dw_copies':1,'paper':'A4','is_color':False,'duplex_label':'双面短边'}] if confirmed else [],
                 'reconciled_uploads':[{'operation_id':operation,'state':'confirmed','message':'已在官方打印队列核对文件和打印设置'}] if confirmed else ([{'operation_id':'unrelated-old-operation','state':'confirmed','message':'其他文档的确认不能覆盖当前请求'}] if operation else [])})
         if path=='/api/printing/relay':return route.fulfill(json={'enabled':False,'agents':[],'pending':[]})
-        return route.fulfill(json={'configured':True,'managed':False,'version':'0.5.24','update':{},'agents':[]})
+        return route.fulfill(json={'configured':True,'managed':False,'version':'0.5.25','update':{},'agents':[]})
     try:
         with browser_context() as context:
             context.request.post(origin+'/auth/unlock',data={'token':runtime.token},headers={'Origin':origin})
