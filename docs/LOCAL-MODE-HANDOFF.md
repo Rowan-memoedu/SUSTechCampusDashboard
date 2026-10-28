@@ -1,6 +1,6 @@
 # 第二阶段执行交接
 
-更新：2026-10-24。**0.5.22 Windows 已通过统一发布流程并同步日常本机，修复普通链接授权、后台启动、同步与作业详情阻塞，并补齐学校人机验证接续和慢目录扫描等待。**当前证据见 [0.5.22 验收](RELEASE-0.5.22-ACCEPTANCE.md)；此前作图题恢复见 [0.5.16 验收](RELEASE-0.5.16-ACCEPTANCE.md)，原有作业与设置均保留；Linux 目标保留为 0.5.9。后续更新仅使用 `python deploy/release.py --version <版本> --commit <完整提交>`，失败按原参数续跑。公共站仅提供静态下载／帮助，运营者托管已退役。旧 Windows 10 实测见 [0.4.3 历史验收](RELEASE-0.4.3-ACCEPTANCE.md)，迁移见 [阶段证据](LOCAL-MODE-ACCEPTANCE.md)。不要重复迁移、清空本机或恢复旧托管。
+**0.5.25 Windows 已通过统一发布流程并同步日常本机，修复打印上传回执解析与延迟确认。**当前证据见 [0.5.25 验收](RELEASE-0.5.25-ACCEPTANCE.md)；此前入口与同步恢复见 [0.5.22 验收](RELEASE-0.5.22-ACCEPTANCE.md)，作图题恢复见 [0.5.16 验收](RELEASE-0.5.16-ACCEPTANCE.md)。原有作业与设置均保留；Linux 目标保留为 0.5.9。后续更新仅使用 `python deploy/release.py --version <版本> --commit <完整提交>`，失败按原参数续跑。公共站仅提供静态下载／帮助，运营者托管已退役。旧 Windows 10 实测见 [0.4.3 历史验收](RELEASE-0.4.3-ACCEPTANCE.md)，迁移见 [阶段证据](LOCAL-MODE-ACCEPTANCE.md)。不要重复迁移、清空本机或恢复旧托管。
 
 ## 当前路线
 
@@ -13,7 +13,7 @@
 1. 先读阶段验收记录，再核对 Git 工作树和实际运行版本；保留已有改动。
 2. 读取总计划中的迁移顺序、精确删除清单和共享资源边界。旧 [HOSTED-PHASE1.md](HOSTED-PHASE1.md) 仅为历史与退役前证据，不能重新开通托管。
 3. 维护者 Python：`D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe`；项目：`D:\Projects\SUSTechCampusDashboard`；构建缓存：`D:\Caches\SUSTechCampusDashboard`。
-4. 当前发布产物：`D:\Artifacts\SUSTechCampusDashboard\releases\v0.5.22`，直接访问与同步证据：`D:\Artifacts\SUSTechCampusDashboard\direct-open-sync-recovery-20261023`；原提取及作图恢复证据保留在 `D:\Artifacts\SUSTechCampusDashboard\homework-extraction-recovery-20261021`。安装入口：`D:\Applications\fy\SUSTechCampusDashboard`；实际运行包由 `D:\AppData\SUSTechCampusDashboard\updates\current.json` 选择，核对其文件清单，不能以兼容入口版本判断后台版本。真实数据位于同一私密数据根。历史清空重装、迁移、隔离与恢复材料保持原位，不自动恢复或删除；历史路径见对应阶段验收记录。
+4. 当前发布产物：`D:\Artifacts\SUSTechCampusDashboard\releases\v0.5.25`，打印修复证据：`D:\Artifacts\SUSTechCampusDashboard\printing-repair-20261028`。此前直接访问与同步证据保留在 `D:\Artifacts\SUSTechCampusDashboard\direct-open-sync-recovery-20261023`，提取及作图恢复证据保留在 `D:\Artifacts\SUSTechCampusDashboard\homework-extraction-recovery-20261021`。安装入口：`D:\Applications\fy\SUSTechCampusDashboard`；实际运行包由 `D:\AppData\SUSTechCampusDashboard\updates\current.json` 选择，核对其文件清单，不能以兼容入口版本判断后台版本。真实数据位于同一私密数据根。历史清空重装、迁移、隔离与恢复材料保持原位，不自动恢复或删除；历史路径见对应阶段验收记录。
 5. 维护连接：`ubuntu@124.221.144.155`，保持主机密钥校验。公共入口 `/app/`，TUF `/campus-updates/`；nginx 与 GraspMemoEdu 共用，不能整文件重写或停掉共享服务。
 
 ## 下一步与执行边界
