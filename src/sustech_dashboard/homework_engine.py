@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -14,6 +15,7 @@ from .core import safe_name
 from .homework_backend import backend, command, confined, toolchain
 from .homework_sources import collect, download, file_sha
 from .homework_store import HomeworkStore, digest
+from .homework_recovery import StageFailure, classify
 
 ASSETS = Path(__file__).with_name('homework_assets') / 'workflow'
 
@@ -31,10 +33,13 @@ PLAN = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']},
     'books': {'type': 'array', 'items': obj({'key': STRING, 'title': STRING, 'edition': STRING, 'evidence': STRING})},
     'source_pages': {'type': 'array', 'items': obj({'id': STRING, 'images': STRINGS})}})
 RESULT = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING})
+LAYOUT = obj({'questions_per_page': {'type': 'integer', 'enum': [1, 2]},
+              'solution_line_spread': {'type': 'number', 'minimum': 1.0, 'maximum': 1.3}, 'notes': STRING})
 FIGURES = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING,
     'figures': {'type': 'array', 'items': obj({'path': STRING, 'source_page': STRING,
         'box': {'type': 'array', 'items': {'type': 'integer'}, 'minItems': 4, 'maxItems': 4}, 'notes': STRING})}})
 REVIEW = obj({'status': {'type': 'string', 'enum': ['PASS', 'FAIL']}, 'notes': STRING,
+    'repair_stage': {'type': 'string', 'enum': ['none', 'extract', 'english', 'translation', 'figures', 'render']},
     'findings': STRINGS, 'reviewed_pages': STRINGS,
     'problems': {'type': 'array', 'items': obj({'id': STRING, 'source_notes': STRING,
                                              'calculation_notes': STRING, 'translation_notes': STRING})}})
@@ -60,6 +65,10 @@ def math_spans(text):
     return re.findall(r'\$\$[\s\S]*?\$\$|\$[^$\n]+\$', text)
 
 
+class StageYield(Exception):
+    """A committed checkpoint releases the worker for another ready job."""
+
+
 class HomeworkEngine:
     def __init__(self, root, snapshot, bb_factory, bb_lock, stop=None):
         self.root = Path(root)
@@ -69,6 +78,7 @@ class HomeworkEngine:
         self.bb_lock = bb_lock
         self.stop = stop or threading.Event()
         self.wake = threading.Event()
+        self.cooperative = False
 
     def workspace(self, job):
         return self.root / 'jobs' / job['id'] / ('attempt-' + str(job['data'].get('attempt', 0)))
@@ -126,11 +136,12 @@ API 后端可用 workspace_file 的 list/read/write/image/pdf_text/pdf_render；
 {instruction}
 '''
 
-    def ai(self, root, stage, instruction, schema, images=()):
+    def ai(self, root, stage, instruction, schema, images=(), read_only=False):
         assets = {str(p.relative_to(root / 'workflow')): file_sha(p) for p in (root / 'workflow').rglob('*') if p.is_file() and '__pycache__' not in p.parts}
         if images:
             instruction += '\n本轮已直接附上以下全部原尺寸页面图，按附图顺序逐张核读：\n' + '\n'.join(images)
-        result = backend(self.settings(), self.stop).run(root, stage, self.prompt(root, stage, instruction), schema, images=images)
+        settings = self.settings() | ({'read_only': True} if read_only else {})
+        result = backend(settings, self.stop).run(root, stage, self.prompt(root, stage, instruction), schema, images=images)
         current_names = {str(p.relative_to(root / 'workflow')) for p in (root / 'workflow').rglob('*') if p.is_file() and '__pycache__' not in p.parts}
         if current_names != set(assets):
             raise ValueError('AI 增删了受保护的制册工具，本阶段未通过')
@@ -142,8 +153,9 @@ API 后端可用 workspace_file 的 list/read/write/image/pdf_text/pdf_render；
     def discover(self, job):
         root = self.setup(job)
         data = job['data']
-        with self.bb_lock:
-            source, resources = collect(self.bb_factory(), data['assignment'])
+        # Read-only calls use their own SDK session. A long material scan must
+        # not hold the lock used by interactive school writes/downloads.
+        source, resources = collect(self.bb_factory(), data['assignment'])
         from .homework_sources import supplement_resources
         source, resources = supplement_resources(source, resources,
             self.store.setting('course_references:' + job['course_id'], []))
@@ -159,10 +171,9 @@ subject 使用课程本名，不带学期/教师后缀；英文课程保持英�
         if not keys or len(keys) > 8 or len(set(keys)) != len(keys) or not set(keys) <= set(resources):
             raise ValueError('未找到明确且可读取的教材／作业原件，需要核对课程来源')
         files = []
-        with self.bb_lock:
-            bb = self.bb_factory()
-            for key in keys:
-                files.append(download(bb, resources[key], root / 'sources'))
+        bb = self.bb_factory()
+        for key in keys:
+            files.append(download(bb, resources[key], root / 'sources'))
         data.update(discovery=result, downloads=files, input=source, requirement_digest=digest(source['requirement']))
         save(root / 'discovery.json', result)
         save(root / 'sources.json', files)
@@ -244,12 +255,21 @@ books.key 必须来自 sources.json，核读题页后再确认 edition。返回�
             'images': {name: file_sha(confined(root, name)) for p in data['plan']['source_pages'] for name in p['images']}})
 
     def review(self, root, stage, instruction, ids, expected_pages=None):
+        instruction += '''\nrepair_stage 只定位真实缺陷所在的最早阶段，不执行修复、不放宽通过标准。
+PASS 填 none；原题提取/来源错误填 extract；英文解答/答案图错误填 english；仅译文科学错误填 translation；
+教材原图裁切错误填 figures；仅编译/分页错误填 render。优先返回最早受影响的阶段。
+原书疑似笔误须核读原页、独立推导，核查解答是否明确区分原文与纠正解释；可由数学或物理证明解决的问题无需人类裁决。'''
         result = self.ai(root, stage, instruction, REVIEW, images=expected_pages or ())
         save(root / 'work/review' / (stage + '.json'), result)
         if result.get('status') != 'PASS' or result.get('findings') or [p['id'] for p in result.get('problems', [])] != ids:
-            raise ValueError('独立审核未通过：' + '；'.join(result.get('findings', []))[:1200])
+            default = {'independent-review': 'english', 'translation-review': 'translation',
+                       'figure-review': 'visual', 'final-review': 'visual'}[stage]
+            phase = {'extract': 'extract', 'english': 'english', 'translation': 'translation',
+                     'figures': 'visual', 'render': 'layout'}.get(result.get('repair_stage'), default)
+            raise StageFailure('独立审核未通过：' + ('；'.join(result.get('findings', [])) or
+                result.get('notes') or '审核记录未完整覆盖本次题目')[:4000], phase=phase)
         if expected_pages is not None and set(result.get('reviewed_pages', [])) != set(expected_pages):
-            raise ValueError('视觉审核未覆盖全部 PDF 页面')
+            raise StageFailure('视觉审核未覆盖全部 PDF 页面', kind='retry')
         return result
 
     def prepare_figures(self, root, data):
@@ -334,7 +354,8 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
             prior = root / 'rejected' / str(time.time_ns())
             shutil.copytree(work, prior)
             failed = data.get('active_phase', 'english')
-            if pipeline.get(failed):
+            explicit = data.pop('repair_phase_explicit', False)
+            if pipeline.get(failed) and not explicit:
                 # Older versions could fail between a successful checkpoint and
                 # the next phase marker (notably compiler discovery). Resume the
                 # first unfinished stage; never discard an accepted translation.
@@ -343,7 +364,8 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
                 data['active_phase'] = failed
             reset = {'english': ('english', 'calculation', 'translation', 'compiled'),
                      'calculation': ('english', 'calculation', 'translation', 'compiled'),
-                     'translation': ('translation', 'compiled'), 'compiled': ('compiled',), 'visual': ('compiled',)}
+                     'translation': ('translation', 'compiled'), 'compiled': ('compiled',),
+                     'layout': ('compiled',), 'visual': ('compiled',)}
             for stage in reset.get(failed, reset['english']):
                 pipeline.pop(stage, None)
             if failed in {'english', 'calculation'}:
@@ -356,6 +378,17 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
                 # the accepted English source, not incremental edits to it.
                 (work / '答案册.md').unlink(missing_ok=True)
             save(root / 'feedback.json', data.get('feedback', []))
+            if failed == 'layout':
+                images = sorted(str(p.relative_to(root)).replace('\\', '/') for p in
+                                (work / 'review/pdf-pages').glob('*-[0-9][0-9].png'))
+                layout = self.ai(root, 'layout-repair', '''只读检查 feedback.json、work/homework.json 和失败的成品页面。
+返回已有渲染器支持的排版参数，不修改正文、图像、工具或审核文件，不删除内容来使版面通过。
+题目过满可将 questions_per_page 从 2 改成 1；答案孤立续页可在 1.0–1.3 内调整 solution_line_spread。
+作答册仍固定每题两页。说明选择依据；程序应用参数后会重新编译，并由独立审核逐页验收。''', LAYOUT,
+                    images=images, read_only=True)
+                if type(layout.get('questions_per_page')) is not int or layout['questions_per_page'] not in (1, 2) or not isinstance(layout.get('solution_line_spread'), (int, float)) or not 1 <= layout['solution_line_spread'] <= 1.3:
+                    raise StageFailure('排版恢复参数超出既有渲染器范围', kind='retry')
+                data['layout'] = {key: layout[key] for key in ('questions_per_page', 'solution_line_spread')}
             if failed == 'visual':
                 # The user's book/question choice remains valid: only derived
                 # crops may change, with immutable originals/prose and separate review.
@@ -366,7 +399,9 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
 
         def checkpoint(stage):
             pipeline[stage] = True
-            self.store.update(job['id'], data=data)
+            self.store.update(job['id'], state='queued' if self.cooperative else None, data=data)
+            if self.cooperative:
+                raise StageYield()
 
         def phase(name):
             data['active_phase'] = name
@@ -387,14 +422,16 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
             phase('english')
             result = self.ai(root, 'english', '''读取 plan.json 与 work/题目.md，为全部分问生成完整、详细英文解答到 work/答案册-英文.md。
 每题以完全相同的 ### Problem ID 开头，先逐字保留完整英文题面，再用 #### Solution 开始解答。
+若发现疑似原书笔误、矛盾或无法成立的要求，重新核读原页并独立推导；保留原文，在解答中明确说明矛盾、证据、成立条件及有依据的解释，不静默改题。
+数学/物理上可验证的问题由后续独立审核裁决，不因发现笔误而要求人类确认；题面保真、论证和全部分问完成后返回 ready。只有缺少原件或确实需要用户选择时返回 needs_attention，并写明缺失信息。
 若原件是中文，另存准确的 work/题目-英文.md，最终中文答案册必须恢复原中文题面。
 物理题必须核查图、方向、单位、量纲与适用条件；数学证明写清前提及全部分类。
 逐题检查是否要求 draw/sketch/plot/画图。凡要求作图，必须实际生成可直接阅读的答案图，以 Markdown 图片嵌入对应 Solution；只有坐标表、映射数组或“请画出”的文字说明不算完成作图，教材原图也不能代替所求答案图。
 用 Python/Matplotlib 等确定性工具按计算结果绘图，PNG 存于 work/solution-figures，与原题配图区分。保留生成脚本；标清所需对象、坐标、箭头、分解及映射关系，尺度与几何关系符合题意。实际打开生成的每张图，确认标签可读、无重叠或裁切，再返回 ready。不得覆盖原题图片。
 使用本机 Python/SymPy 做必要独立计算，并保存可检查计算记录；不要改动冻结题面或生成通过结论。
 从冻结题面重新生成完整英文底稿、所需答案图及计算过程；旧候选仅作失败证据，不在旧稿上局部补丁。暂不翻译或生成三册 PDF。''', RESULT)
-            if result.get('status') != 'ready' or headings(work / '答案册-英文.md') != ids:
-                raise ValueError('英文解答不完整，未进入下一阶段')
+            if result.get('status') != 'ready' or not (work / '答案册-英文.md').is_file() or headings(work / '答案册-英文.md') != ids:
+                raise StageFailure('英文解答未通过阶段验收：' + (result.get('notes') or '题号、数量或顺序不完整'), phase='english')
             checkpoint('english')
         if not pipeline.get('calculation'):
             phase('calculation')
@@ -404,7 +441,7 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
             for name in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', english_path.read_text(encoding='utf-8')):
                 picture = confined(work, name)
                 if picture.suffix.lower() != '.png' or not picture.is_file():
-                    raise ValueError('英文解答引用的图片不存在或不是 PNG')
+                    raise StageFailure('英文解答引用的图片不存在或不是 PNG', phase='english')
                 answer_images.append(picture.relative_to(root.resolve()).as_posix())
             review_images = list(dict.fromkeys(source_images + answer_images))
             result = self.review(root, 'independent-review', '''独立复核 work/答案册-英文.md，不接受生产者自报正确。
@@ -423,8 +460,8 @@ reviewed_pages 写本次实际看过的所有原页图与解答引用图片的�
 ### Problem ID 与 #### Solution 标签保持不变。原题是中文时，最终题面从 work/题目.md 恢复原中文，不回译。
 只进行翻译，不重新求解，不压缩推导，不修改英文底稿。
 保存完整译文，仅存在影响科学含义的真实歧义时返回 needs_attention。''', RESULT)
-            if result.get('status') != 'ready' or headings(work / '答案册.md') != ids:
-                raise ValueError('翻译未完整覆盖题目')
+            if result.get('status') != 'ready' or not (work / '答案册.md').is_file() or headings(work / '答案册.md') != ids:
+                raise StageFailure('翻译未完整覆盖题目：' + (result.get('notes') or '题号、数量或顺序不完整'), phase='translation')
             english = (work / '答案册-英文.md').read_text(encoding='utf-8')
             chinese = (work / '答案册.md').read_text(encoding='utf-8')
             save(work / 'review/translation/formula-comparison.json', {
@@ -448,6 +485,7 @@ reviewed_pages 写本次实际看过的所有原页图与解答引用图片的�
               'solution_line_spread': 1.1,
               'question_pdf': prefix + '_题目册.pdf', 'writing_pdf': prefix + '_作答册.pdf',
               'solution_pdf': prefix + '_答案册.pdf'}
+        hw.update(data.get('layout', {}))
         if (work / '题目-英文.md').exists():
             hw['answer_stems_translated'] = True
         save(work / 'homework.json', hw)
@@ -567,6 +605,22 @@ reviewed_pages 必须列出每一张实际查看的 PDF 页图的工作区相对
     def step(self):
         self.store.ingest(self.snapshot())
         for pending in self.store.list():
+            if pending['state'] == 'failed':
+                error = pending['error']
+                # Earlier versions replaced a model's actionable explanation with
+                # a generic label. Recover it from this job's retained evidence.
+                if '英文解答不完整' in error:
+                    runs = sorted((self.workspace(pending) / 'agent-runs').glob('english-*/result.json'))
+                    if runs:
+                        try:
+                            notes = json.loads(runs[-1].read_text(encoding='utf-8')).get('notes', '')
+                            if notes:
+                                error += '；执行器说明：' + notes[:4000]
+                        except (ValueError, OSError):
+                            pass
+                kind, phase = classify(pending, ValueError(error))
+                self.store.schedule_recovery(pending['id'], error, kind, phase, legacy=True)
+                continue
             if pending['state'] not in {'awaiting_source', 'awaiting_pdf'} or pending['data'].get('force_confirm') or not self.store.course(pending['course_id'])['trusted']:
                 continue
             if pending['state'] == 'awaiting_source':
@@ -581,23 +635,42 @@ reviewed_pages 必须列出每一张实际查看的 PDF 页图的工作区相对
         if not job:
             return False
         try:
+            self.cooperative = True
             getattr(self, job['stage'])(job)
+        except StageYield:
+            pass
         except Exception as exc:
             if self.stop.is_set():
                 self.store.update(job['id'], state='queued')
             else:
-                self.store.update(job['id'], state='failed', error=str(exc)[:1500] if isinstance(exc, ValueError) else
-                                  f'{type(exc).__name__}：当前阶段未完成，材料已保留')
+                current = self.store.get(job['id'])
+                kind, phase = classify(current, exc)
+                error = str(exc)[:5000] if isinstance(exc, ValueError) else f'{type(exc).__name__}：当前阶段未完成，材料已保留'
+                self.store.schedule_recovery(job['id'], error, kind, phase)
+        finally:
+            self.cooperative = False
         return True
 
     def run(self):
         from .locking import exclusive_file, InstanceBusy
-        try:
-            with exclusive_file(self.root / 'worker.lock'):
-                self.store.recover()
-                while not self.stop.is_set():
-                    if not self.step():
-                        self.wake.wait(15)
-                        self.wake.clear()
-        except InstanceBusy:
-            return  # A one-off local acceptance may already own this account's worker.
+        while not self.stop.is_set():
+            try:
+                with exclusive_file(self.root / 'worker.lock'):
+                    self.store.recover()
+                    while not self.stop.is_set():
+                        try:
+                            if not self.step():
+                                self.wake.wait(15)
+                                self.wake.clear()
+                        except Exception as exc:
+                            # A transient ledger/snapshot failure must not silently
+                            # kill the only consumer. Recovery remains under the lock.
+                            logging.getLogger(__name__).warning('Homework scheduler restarting: %s', type(exc).__name__)
+                            if self.stop.wait(30):
+                                return
+                            self.store.recover()
+            except InstanceBusy:
+                self.stop.wait(15)
+            except Exception as exc:
+                logging.getLogger(__name__).warning('Homework worker restarting: %s', type(exc).__name__)
+                self.stop.wait(30)

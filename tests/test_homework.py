@@ -11,6 +11,7 @@ from sustech_dashboard.homework_engine import HomeworkEngine
 from sustech_dashboard.homework_routes import register_homework
 from sustech_dashboard.homework_sources import collect, download, file_sha, local_reference, supplement_resources
 from sustech_dashboard.homework_store import HomeworkStore, digest
+from sustech_dashboard.homework_recovery import StageFailure, classify
 
 
 def assignment(id='a', course='c'):
@@ -41,6 +42,185 @@ def test_failed_first_sync_cannot_create_baseline(tmp_path):
     with pytest.raises(ValueError):
         store.enable(True, {'assignments': [assignment()]})
     assert not store.setting('enabled')
+
+
+def test_automatic_retry_survives_restart_and_does_not_block_another_job(tmp_path):
+    store = HomeworkStore(tmp_path)
+    bad = store.enqueue(assignment('bad'), explicit=True)
+    failed = store.schedule_recovery(bad['id'], 'temporary failure', 'retry', 'discover')
+    good = store.enqueue(assignment('good'), explicit=True)
+    restarted = HomeworkStore(tmp_path)
+    restarted.recover()
+    assert restarted.claim()['id'] == good['id']
+    assert restarted.claim() is None
+    again = restarted.get(bad['id'])
+    assert again['data']['recovery'] == failed['data']['recovery']
+    again['data']['recovery']['next_retry_at'] = '2000-01-01T00:00:00+00:00'
+    restarted.update(bad['id'], data=again['data'])
+    assert restarted.claim()['id'] == bad['id']
+    assert restarted.claim() is None
+
+
+def test_repeated_errors_cool_down_automatically_without_becoming_human_work(tmp_path):
+    from datetime import datetime
+    store = HomeworkStore(tmp_path)
+    job = store.enqueue(assignment(), explicit=True)
+    waits = []
+    for _ in range(7):
+        job = store.schedule_recovery(job['id'], 'quality failure', 'regenerate', 'english')
+        waits.append((datetime.fromisoformat(job['data']['recovery']['next_retry_at']) -
+                      datetime.fromisoformat(job['updated'])).total_seconds())
+        assert job['state'] == 'retry_wait' and not store.course('c')['trusted']
+    assert waits[0] < waits[1] < waits[2] < waits[3] < waits[4]
+    assert 21599 < waits[-1] <= 21600
+    assert job['data']['recovery']['attempts'] == 7
+
+
+def test_legacy_failures_resume_with_retained_reason_and_completed_jobs_untouched(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    done = runner.store.enqueue(assignment('done'), explicit=True)
+    done = runner.store.update(done['id'], state='complete', stage='done')
+    job = runner.store.enqueue(assignment('old'), explicit=True)
+    job = runner.store.update(job['id'], state='failed', stage='produce', error='英文解答不完整，未进入下一阶段',
+        data=job['data'] | {'active_phase': 'english'})
+    result = runner.workspace(job) / 'agent-runs/english-123/result.json'
+    result.parent.mkdir(parents=True)
+    result.write_text(json.dumps({'notes': 'Original formula contradicts the stated norm; independent proof supplied.'}))
+    with runner.store.db() as db:
+        db.execute("UPDATE jobs SET updated='2000-01-01T00:00:00+00:00' WHERE id=?", (job['id'],))
+    observed = []
+    def produce(current):
+        observed.append(current)
+        runner.store.update(current['id'], state='complete', stage='done')
+    monkeypatch.setattr(runner, 'produce', produce)
+    assert runner.step()
+    assert 'independent proof' in observed[0]['data']['feedback'][-1]['text']
+    assert observed[0]['data']['retry_production']
+    assert runner.store.get(done['id']) == done
+
+
+def test_transient_review_failure_keeps_accepted_checkpoint_and_no_regeneration(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'active_phase': 'calculation', 'pipeline': {'english': True}})
+    def unavailable(job):
+        raise StageFailure('model transport interrupted', kind='retry')
+    monkeypatch.setattr(runner, 'produce', unavailable)
+    runner.step()
+    after = runner.store.get(job['id'])
+    assert after['state'] == 'retry_wait'
+    assert after['data']['pipeline'] == {'english': True}
+    assert not after['data'].get('retry_production')
+
+
+def test_integrity_fault_requires_real_attention_without_automatic_approval(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    def changed(job):
+        raise ValueError('原件哈希变化，未继续制册')
+    monkeypatch.setattr(runner, 'discover', changed)
+    runner.step()
+    after = runner.store.get(job['id'])
+    assert after['state'] == 'needs_attention' and not after['data'].get('recovery')
+    assert not runner.step()
+
+
+def test_model_review_routes_repair_to_first_affected_stage(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    monkeypatch.setattr(runner, 'ai', lambda *args, **kwargs: {'status': 'FAIL',
+        'repair_stage': 'english', 'findings': ['incorrect derivation'],
+        'problems': [{'id': '1'}], 'reviewed_pages': []})
+    with pytest.raises(StageFailure) as caught:
+        runner.review(tmp_path, 'final-review', 'review', ['1'], [])
+    assert caught.value.phase == 'english' and caught.value.kind == 'regenerate'
+
+
+def test_cooperative_checkpoint_releases_worker_and_preserves_english(tmp_path, monkeypatch):
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment('first'), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['2.1']}})
+    next_job = runner.store.enqueue(assignment('second'), explicit=True)
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def generate(root, stage, *args, **kwargs):
+        assert stage == 'english'
+        (root / 'work/答案册-英文.md').write_text('### Problem 2.1\n#### Solution\nVerified later.', encoding='utf-8')
+        return {'status': 'ready'}
+    monkeypatch.setattr(runner, 'ai', generate)
+    assert runner.step()
+    after = runner.store.get(job['id'])
+    assert after['state'] == 'queued' and after['data']['pipeline'] == {'english': True}
+    assert runner.store.claim()['id'] == next_job['id']
+
+
+def test_final_review_can_invalidate_an_earlier_accepted_stage(tmp_path, monkeypatch):
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['2.1']}, 'active_phase': 'visual',
+        'pipeline': {'english': True, 'calculation': True, 'translation': True, 'compiled': True}})
+    job = runner.store.schedule_recovery(job['id'], 'incorrect derivation', 'regenerate', 'english')
+    root = runner.setup(job)
+    (root / 'work/答案册-英文.md').write_text('rejected', encoding='utf-8')
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def observe(root, stage, *args, **kwargs):
+        assert stage == 'english'
+        assert not (root / 'work/答案册-英文.md').exists()
+        assert runner.store.get(job['id'])['data']['pipeline'] == {}
+        raise RuntimeError('fresh generation reached')
+    monkeypatch.setattr(runner, 'ai', observe)
+    with pytest.raises(RuntimeError, match='fresh generation reached'):
+        runner.produce(job)
+
+
+def test_scheduler_survives_exception_outside_the_claimed_job(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    calls, waits = [], []
+    def step():
+        calls.append(True)
+        if len(calls) == 1:
+            raise OSError('temporary snapshot failure')
+        runner.stop.set()
+        return True
+    monkeypatch.setattr(runner, 'step', step)
+    monkeypatch.setattr(runner.stop, 'wait', lambda seconds: waits.append(seconds) or runner.stop.is_set())
+    runner.run()
+    assert len(calls) == 2 and waits == [30]
+
+
+def test_layout_recovery_changes_only_supported_renderer_options(tmp_path, monkeypatch):
+    import sustech_dashboard.homework_engine as module
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['2.1'], 'subject': 'Fixture', 'label': 'HW', 'books': []},
+        'active_phase': 'visual', 'pipeline': {'english': True, 'calculation': True, 'translation': True, 'compiled': True}})
+    job = runner.store.schedule_recovery(job['id'], 'page overflow', 'regenerate', 'layout')
+    root = runner.setup(job)
+    manuscript = root / 'work/答案册.md'
+    manuscript.write_text('accepted content', encoding='utf-8')
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def layout(root, stage, *args, **kwargs):
+        assert stage == 'layout-repair' and kwargs['read_only']
+        return {'questions_per_page': 1, 'solution_line_spread': 1.05, 'notes': 'more space'}
+    monkeypatch.setattr(runner, 'ai', layout)
+    def render(*args, **kwargs):
+        hw = json.loads((root / 'work/homework.json').read_text(encoding='utf-8'))
+        assert hw['questions_per_page'] == 1 and hw['solution_line_spread'] == 1.05
+        assert manuscript.read_text(encoding='utf-8') == 'accepted content'
+        raise RuntimeError('compile with revised layout')
+    monkeypatch.setattr(module, 'command', render)
+    with pytest.raises(RuntimeError, match='revised layout'):
+        runner.produce(job)
+
+
+def test_api_diagnosis_cannot_write_candidate_or_audit(tmp_path):
+    with pytest.raises(ValueError, match='只读'):
+        ApiBackend({'read_only': True}).file_tool(tmp_path, {'action': 'write', 'path': 'work/答案册.md', 'text': 'altered'})
 
 
 def test_concurrent_enqueues_and_claims_are_idempotent(tmp_path):

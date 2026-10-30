@@ -114,6 +114,21 @@ def main():
             dialog.get_by_role('button', name='提交补充，重新识别').click()
             dialog.wait_for(state='hidden')
             assert report['decisions'][-1] == 'correct_source'
+            job.update(state='retry_wait', error='独立审核发现译文科学含义有误，正在自动重做（隔离样例）',
+                       revision=job['revision'] + 1, recovery={'attempts': 2,
+                       'next_retry_at': '2026-10-30T12:30:00+08:00'})
+            page.reload()
+            page.locator('.homework-panel>summary').click()
+            recovery = page.locator('[data-recovery-state=retry_wait]')
+            recovery.get_by_text('无需操作。', exact=False).wait_for()
+            assert not dialog.is_visible()
+            assert recovery.get_by_role('button').count() == 0
+            assert '待核对' not in page.locator('.homework-panel>summary').inner_text()
+            for width in report['widths']:
+                page.set_viewport_size({'width': width, 'height': 900})
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'), f'Recovery overflow {width}'
+                page.screenshot(path=str(args.output / f'recovery-{width}.png'), full_page=True)
+            report['automatic_recovery_needs_no_click'] = True
             assert not report['errors'], report['errors']
             report.update(no_implicit_approval=True, two_explicit_confirmations=True, correction_visible=True,
                           stale_confirmation_rejected=True, teacher_html_is_text=True)

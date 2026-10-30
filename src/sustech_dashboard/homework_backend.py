@@ -11,6 +11,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from .homework_recovery import StageFailure
+
 
 def confined(root, name):
     root = Path(root).resolve()
@@ -31,7 +33,7 @@ def terminate(process):
     process.wait(timeout=20)
 
 
-def command(args, cwd, log, stop=None, timeout=7200, input_text=None, env=None):
+def command(args, cwd, log, stop=None, timeout=7200, input_text=None, env=None, idle_timeout=1200):
     """Bounded, silent, tracked child; restart never leaves a second worker."""
     log = Path(log)
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -44,13 +46,20 @@ def command(args, cwd, log, stop=None, timeout=7200, input_text=None, env=None):
                 process.stdin.write(input_text.encode('utf-8'))
                 process.stdin.close()
             deadline = time.monotonic() + timeout
+            last_output = time.monotonic()
+            last_size = 0
             while process.poll() is None:
+                current_size = log.stat().st_size + log.with_suffix('.stderr.log').stat().st_size
+                if current_size != last_size:
+                    last_output, last_size = time.monotonic(), current_size
                 if (stop is not None and stop.wait(.5)) or time.monotonic() > deadline:
-                    raise RuntimeError('后台执行已中断，材料已保留，可从当前阶段续跑')
+                    raise StageFailure('后台步骤已中断或超过执行时限，材料已保留，将自动续跑', kind='retry')
+                if idle_timeout and time.monotonic() - last_output > idle_timeout:
+                    raise StageFailure('后台子进程长时间没有新输出，已停止本次执行，将自动重试', kind='retry')
                 if stop is None:
                     time.sleep(.5)
             if process.returncode:
-                raise RuntimeError(f'后台步骤未通过（退出码 {process.returncode}），请查看本机任务日志')
+                raise StageFailure(f'后台步骤未通过（退出码 {process.returncode}），日志与材料已保留，将自动重试', kind='retry')
         finally:
             terminate(process)
 
@@ -132,7 +141,7 @@ class CodexBackend:
         args = [chain['codex'], 'exec', '--ignore-user-config', '--ephemeral', '--json',
                 '--enable', 'unified_exec', '--disable', 'multi_agent', '--disable', 'shell_snapshot',
                 '-c', 'skills.include_instructions=false',
-                '--sandbox', 'workspace-write', '-c', 'approval_policy="never"',
+                '--sandbox', 'read-only' if self.settings.get('read_only') else 'workspace-write', '-c', 'approval_policy="never"',
                 '--skip-git-repo-check', '-C', str(root),
                 '--output-schema', str(run / 'schema.json'), '-o', str(output)]
         model = self.settings.get('model')
@@ -251,6 +260,8 @@ class ApiBackend:
                 raise ValueError('文件过大，请读取 PDF 分页文本')
             return {'text': path.read_text(encoding='utf-8')}, None
         if action == 'write':
+            if self.settings.get('read_only'):
+                raise ValueError('本阶段只读诊断，不能修改文件')
             if path.relative_to(Path(root).resolve()).parts[0] in {'sources', 'workflow', 'agent-runs'}:
                 raise ValueError('原件和工作流不可由模型改写')
             path.parent.mkdir(parents=True, exist_ok=True)

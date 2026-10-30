@@ -6,8 +6,10 @@ import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+from .homework_recovery import retry_delay, elapsed_since
 
 
 def now():
@@ -141,7 +143,12 @@ class HomeworkStore:
     def claim(self):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+            # Oldest-ready first, not oldest-created: a repeatedly failing job
+            # cannot monopolize the worker. Delayed retries survive restarts.
+            row = next((r for r in db.execute(
+                "SELECT * FROM jobs WHERE state IN ('queued','retry_wait') ORDER BY updated,created")
+                if r['state'] == 'queued' or
+                json.loads(r['data']).get('recovery', {}).get('next_retry_at', '') <= now()), None)
             if row is None:
                 return None
             db.execute("UPDATE jobs SET state='running',revision=revision+1,updated=? WHERE id=?", (now(), row['id']))
@@ -150,6 +157,36 @@ class HomeworkStore:
     def recover(self):
         with self.db() as db:
             db.execute("UPDATE jobs SET state='queued',error='',updated=? WHERE state='running'", (now(),))
+
+    def schedule_recovery(self, jid, error, kind, phase, *, legacy=False):
+        job = self.get(jid)
+        data = job['data']
+        if kind == 'blocked':
+            return self.update(jid, state='needs_attention', error=error, data=data)
+        if kind == 'regenerate' and job['stage'] == 'extract':
+            phase = 'extract'
+        old = data.get('recovery', {})
+        streak = old.get('streak', 0) + 1 if old.get('phase') == phase else 1
+        delay = retry_delay(streak)
+        if legacy:
+            delay = max(0, delay - elapsed_since(job['updated']))
+        next_retry = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
+        history = old.get('history', []) + [{'at': now(), 'phase': phase, 'kind': kind, 'error': error}]
+        data['recovery'] = {'attempts': old.get('attempts', 0) + 1, 'streak': streak,
+            'phase': phase, 'kind': kind, 'next_retry_at': next_retry, 'history': history[-20:]}
+        if kind == 'regenerate':
+            data.setdefault('feedback', []).append({'stage': phase, 'text': error, 'at': now()})
+            if phase == 'extract':
+                data['retry_extraction'] = True
+                stage = 'extract'
+            else:
+                data['active_phase'] = phase
+                data['retry_production'] = True
+                data['repair_phase_explicit'] = True
+                stage = job['stage']
+        else:
+            stage = job['stage']
+        return self.update(jid, state='retry_wait', stage=stage, data=data, error=error)
 
     def decide(self, jid, revision, action, feedback='', homework_copies=False):
         with self.db() as db:

@@ -35,6 +35,21 @@ def test_existing_configured_runtime_keeps_priority(tmp_path, monkeypatch):
     assert backend.toolchain({'tectonic': str(explicit)})['tectonic'] == str(environment)
 
 
+def test_silent_child_is_terminated_and_can_be_retried(tmp_path):
+    from sustech_dashboard.homework_recovery import StageFailure
+    with pytest.raises(StageFailure, match='没有新输出') as caught:
+        backend.command([sys.executable, '-c', 'import time; time.sleep(30)'],
+                        tmp_path, tmp_path / 'idle.log', timeout=10, idle_timeout=.1)
+    assert caught.value.kind == 'retry'
+
+
+def test_output_progress_prevents_idle_timeout(tmp_path):
+    backend.command([sys.executable, '-u', '-c',
+        'import time\nfor i in range(8):\n print(i, flush=True)\n time.sleep(.2)'],
+        tmp_path, tmp_path / 'progress.log', timeout=10, idle_timeout=.8)
+    assert '7' in (tmp_path / 'progress.log').read_text()
+
+
 @pytest.mark.parametrize('response', ['valid', 'failure', 'timeout', 'invalid'])
 def test_registered_app_discovery_is_bounded_and_handles_missing_registration(tmp_path, monkeypatch, response):
     target = tmp_path / 'app/resources/tectonic/tectonic.exe'

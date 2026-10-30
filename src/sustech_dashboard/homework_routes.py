@@ -15,6 +15,7 @@ def public_job(job):
     return {k: job[k] for k in ('id', 'course_id', 'name', 'state', 'stage', 'revision', 'error', 'updated')} | {
         'course': data['assignment']['course'], 'content_id': data['assignment']['content_id'],
         'phase': data.get('active_phase', job['stage']),
+        'recovery': {k: data.get('recovery', {}).get(k) for k in ('attempts', 'next_retry_at', 'phase')},
         'plan': data.get('plan'), 'requirement': data.get('input', {}).get('requirement', ''),
         'artifacts': [{k: x[k] for k in ('module', 'name', 'pages')} for x in data.get('artifacts', [])],
         'homework_copies': data.get('homework_copies', data.get('plan', {}).get('subject') in {'大学物理（上）', '线性代数'})}
