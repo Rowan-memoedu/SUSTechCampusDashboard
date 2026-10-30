@@ -125,6 +125,21 @@ def test_restricted_content_never_looks_like_complete_empty_course(monkeypatch):
     assert bb.assignment_coverage[0]['errors'] == ['restricted_content']
 
 
+def test_single_content_failure_retains_only_that_record_and_refreshes_the_rest(monkeypatch):
+    bb, scope = fixture(monkeypatch)
+    bb.current_courses = lambda: [{'id': 'course-a', 'name': 'A'}]
+    bb._assignment_content_failures = {'course-a': ['slow']}
+    previous = [{'course_id': 'course-a', 'course': 'A', 'content_id': 'slow', 'status': 'draft'},
+                {'course_id': 'course-a', 'course': 'A', 'content_id': 'removed', 'status': 'submitted'}]
+    result = collect(bb, previous, {k: str(v) for k,v in scope.items()})
+    assert len(result) == 2
+    assert {x['content_id'] for x in result if x.get('stale')} == {'slow'}
+    assert bb.assignment_coverage[0]['received'] == 1 and bb.assignment_coverage[0]['retained'] == 1
+    assert bb.assignment_coverage[0]['state'] == 'partial'
+    assert 'content_unavailable' in bb.assignment_coverage[0]['errors']
+    assert len(collect(bb, previous, {'start': 'old term'})) == 1
+
+
 def test_sync_preserves_course_coverage_scope_and_independent_scan_failure(monkeypatch, tmp_path):
     from sustech_dashboard import app, quotas
     from sustech_dashboard.provider import Blackboard

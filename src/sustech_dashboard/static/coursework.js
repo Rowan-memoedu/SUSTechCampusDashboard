@@ -3,7 +3,7 @@
  const sources={gradebook:'评分列',calendar:'课程日历',unknown:'未确认'};
  const latest={draft:'最新一次为草稿',needs_grading:'最新一次待评分',completed:'最新一次已完成',not_attempted:'最新一次未提交',unknown:'最新一次状态未确认'};
  const evidence={receipt:'已读取提交回执',attempt_status:'依据 Blackboard 尝试状态',complete_attempt_list:'已读取完整尝试列表',unavailable:'尝试记录未读取成功',unknown:'提交证据未确认'};
- const errors={source_unavailable:'Blackboard 本次未读取成功',access_unavailable:'当前无访问权限',columns_unavailable:'作业列表读取失败',exemptions_unavailable:'豁免状态未核对',attempts_unavailable:'部分尝试记录读取失败',submission_unconfirmed:'部分提交状态未确认',restricted_content:'部分内容不可读取'};
+ const errors={source_unavailable:'Blackboard 本次未读取成功',access_unavailable:'当前无访问权限',columns_unavailable:'作业列表读取失败',content_unavailable:'部分作业详情待自动重试',exemptions_unavailable:'豁免状态未核对',attempts_unavailable:'部分尝试记录读取失败',submission_unconfirmed:'部分提交状态未确认',restricted_content:'部分内容不可读取'};
  window.courseworkSummary=a=>{
   const hasMetadata=Object.hasOwn(a,'due_precision');
   const dateText=a.due?timestamp(a.due):a.due_date_only?`${a.due_date_only}（仅日期）`:'未确认截止时间';

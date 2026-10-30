@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, RequestException, ConnectionError, Timeout
 
 from .core import CHINA_TZ, parse_dt, submission_status, download_name
 from .academic_calendar import semester_scope
@@ -193,6 +193,7 @@ class Blackboard:
             return cache[cid]
         selected = []
         restricted = 0
+        failed_contents = []
         for col in self.results(f'/learn/api/public/v1/courses/{cid}/gradebook/columns'):
             if col.get('grading', {}).get('type') != 'Attempts' or not col.get('contentId'):
                 continue
@@ -200,11 +201,17 @@ class Blackboard:
             if due and not self.in_current_term(due):
                 continue
             try:
-                content = self.json(f"/learn/api/public/v1/courses/{cid}/contents/{col['contentId']}")
+                content = self._assignment_content(cid, col['contentId'])
             except HTTPError as exc:
-                if exc.response is None or exc.response.status_code not in {403, 404}:
+                if exc.response is not None and exc.response.status_code == 401:
                     raise
-                restricted += 1
+                if exc.response is not None and exc.response.status_code in {403, 404}:
+                    restricted += 1
+                else:
+                    failed_contents.append(col['contentId'])
+                continue
+            except (RequestException, ValueError):
+                failed_contents.append(col['contentId'])
                 continue
             if not due and not self.in_current_term(content.get('created')):
                 continue
@@ -214,7 +221,23 @@ class Blackboard:
         restrictions = getattr(self, '_assignment_restrictions', {})
         restrictions[cid] = restricted
         self._assignment_restrictions = restrictions
+        failures = getattr(self, '_assignment_content_failures', {})
+        failures[cid] = failed_contents
+        self._assignment_content_failures = failures
         return selected
+
+    def _assignment_content(self, cid, content_id):
+        """One slow-read retry, scoped to this background reader and record."""
+        path = f'/learn/api/public/v1/courses/{cid}/contents/{content_id}'
+        previous = getattr(self, '_read_timeout', 20)
+        try:
+            try:
+                return self.json(path)
+            except (ConnectionError, Timeout):
+                self._read_timeout = max(previous, 60)
+                return self.json(path)
+        finally:
+            self._read_timeout = previous
 
     def _contents(self, course_id: str, parent_id: str | None = None, folders: tuple = ()):
         path = f"/learn/api/public/v1/courses/{course_id}/contents"

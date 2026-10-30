@@ -10,6 +10,8 @@
 
 这一实现复用本机账本、现有单工作者文件锁和 Codex Exec；不增加 Redis、云端队列或第二套任务控制面。退避重试与幂等阶段参考 [Celery 官方任务指南](https://docs.celeryq.dev/en/stable/userguide/tasks.html)，断点恢复参考 [Microsoft Durable Task 的 AI 任务执行说明](https://learn.microsoft.com/en-us/azure/durable-task/sdks/durable-task-for-ai-agents)。
 
+Blackboard 同步按作业条目隔离。单条详情超时后，以 60 秒读取预算再尝试一次，随后恢复普通交互预算；仍失败时只保留该条目的同学期缓存，其他作业正常刷新。缓存条目和课程覆盖状态明确标为未完成，不把旧数据当作本次成功。403/404 权限拒绝不恢复缓存，也不重试学校写入。
+
 ## 修复范围
 
 - 生成内容失败：保留旧候选，将完整原因交回模型，从原始输入重新生成受影响阶段。

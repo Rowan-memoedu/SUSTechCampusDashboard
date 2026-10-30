@@ -8,6 +8,46 @@ import pytest
 import requests
 
 
+@pytest.mark.parametrize('persistent', [False, True])
+def test_slow_assignment_read_retries_once_and_isolates_failure(persistent):
+    from sustech_dashboard.provider import Blackboard
+    bb = Blackboard.__new__(Blackboard)
+    bb.in_current_term = lambda _: True
+    bb.results = lambda path: [{'id': x, 'contentId': x, 'grading': {'type': 'Attempts', 'due': 'current'}}
+                               for x in ('slow', 'healthy')]
+    calls = []
+    def read(path):
+        slow = path.endswith('/slow')
+        budget = getattr(bb, '_read_timeout', 20)
+        calls.append((slow, budget))
+        if slow and (persistent or budget == 20):
+            raise requests.ConnectionError('private request data')
+        return {'created': 'current'}
+    bb.json = read
+    rows = bb.current_assignment_columns('course')
+    assert calls == [(True, 20), (True, 60), (False, 20)]
+    assert len(rows) == (1 if persistent else 2)
+    assert bb._assignment_content_failures['course'] == (['slow'] if persistent else [])
+    assert bb._read_timeout == 20
+
+
+def test_explicit_content_access_denial_is_not_retried_or_cached():
+    from sustech_dashboard.provider import Blackboard
+    bb = Blackboard.__new__(Blackboard)
+    bb.in_current_term = lambda _: True
+    bb.results = lambda path: [{'id':'x','contentId':'x','grading':{'type':'Attempts','due':'current'}}]
+    calls = []
+    def read(path):
+        calls.append(path)
+        response = requests.Response()
+        response.status_code = 403
+        raise requests.HTTPError(response=response)
+    bb.json = read
+    assert bb.current_assignment_columns('course') == []
+    assert len(calls) == 1 and bb._assignment_restrictions['course'] == 1
+    assert bb._assignment_content_failures['course'] == []
+
+
 def test_blackboard_expiry_refreshes_read_once_and_uses_independent_sessions(monkeypatch):
     from sustech_dashboard.provider import Blackboard
     import sustech_survival.sso as sso

@@ -187,8 +187,16 @@ def collect(bb, previous: list[dict] = (), previous_scope: dict | None = None) -
                            'attempts': len(attempts) if attempts is not None else None,
                            'exemption_checked': exemption_checked, 'fetched_at': checked_at, 'stale': False,
                            **deadline(col, cid, events), **evidence})
+        received = len(output) - start
+        failed_contents = set(getattr(bb, '_assignment_content_failures', {}).get(cid, []))
+        cached = [dict(deepcopy(item), stale=True) for item in previous
+                  if same_scope and item.get('course_id') == cid and item.get('content_id') in failed_contents]
+        if failed_contents:
+            errors.append('content_unavailable')
+            output.extend(cached)
+            bb.warnings.append(f'{course["name"]} 有 {len(failed_contents)} 条作业详情暂未读取成功，其他作业已刷新；后台将继续重试')
         coverage.append({'course_id': cid, 'course': course['name'], 'state': 'partial' if errors else 'complete',
-                         'checked_at': checked_at, 'received': len(output)-start, 'retained': 0,
+                         'checked_at': checked_at, 'received': received, 'retained': len(cached),
                          'errors': sorted(set(errors)), 'calendar_checked': calendar_ok})
     bb.assignment_coverage = coverage
     return sorted(output, key=lambda a: (not (a.get('due') or a.get('due_date_only')),
