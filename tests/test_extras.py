@@ -72,6 +72,53 @@ def test_content_search_includes_body_and_independent_types():
     assert academic.content_search(BB(), {'kind': 'video'})['items'][0]['id'] == 'video'
 
 
+def test_content_detail_reads_full_document_without_a_gradebook_column():
+    bb = BB()
+    tail = 'Later section with team and presentation requirements.'
+    bb.json = lambda path: {'id': 'document', 'title': 'Course project',
+                            'contentHandler': {'id': 'resource/x-bb-document'},
+                            'body': '<p>' + 'Introduction. ' * 60 + tail + '</p>' +
+                                    '<script>bad()</script><img src="https://tracker.invalid/pixel">' +
+                                    '<a onclick="bad()" href="https://example.org/form">Team form</a>'}
+    paths = []
+    def results(path):
+        paths.append(path)
+        assert path == '/learn/api/public/v1/courses/c/contents/document/attachments'
+        return [{'id': 'archive', 'fileName': 'Course materials.zip'}]
+    bb.results = results
+    result = academic.content_detail(bb, 'c', 'document', '/private')['items'][0]
+    assert tail in result['body_html'] and len(result['body_html']) > 400
+    assert all(s not in result['body_html'] for s in ('<script', 'onclick', 'tracker.invalid'))
+    assert 'https://example.org/form' in result['body_html']
+    assert result['attachments'][0]['name'] == 'Course materials.zip'
+    assert result['attachments'][0]['url'].startswith('/private/api/blackboard-resource?path=')
+    assert 'gradebook' not in ''.join(paths)
+
+
+def test_content_detail_folder_and_partial_failure_are_distinct():
+    bb = BB()
+    bb.json = lambda _: {'id': 'folder', 'title': 'Materials', 'hasChildren': True,
+                         'contentHandler': {'id': 'resource/x-bb-folder'}}
+    bb.results = lambda _: [{'id': 'child', 'title': 'Nested notes'}]
+    data = academic.content_detail(bb, 'c', 'folder')
+    assert data['items'][0]['children'][0]['id'] == 'child' and not data['warnings']
+    bb.results = lambda _: (_ for _ in ()).throw(ConnectionError())
+    data = academic.content_detail(bb, 'c', 'folder')
+    assert not data['items'][0]['children'] and data['warnings']
+    bb.json = lambda _: {'id': 'document', 'body': 'Visible text',
+                         'contentHandler': {'id': 'resource/x-bb-document'}}
+    data = academic.content_detail(bb, 'c', 'document')
+    assert data['items'][0]['body_html'] == 'Visible text' and data['warnings']
+
+
+def test_content_detail_rejects_foreign_courses_and_unsafe_ids_before_reading():
+    bb = BB()
+    bb.json = lambda _: pytest.fail('Unexpected content read')
+    for cid, iid in [('foreign', 'document'), ('c', '../other'), ('c', 'a/b'), ('c', ''), ('c', '%2e%2e')]:
+        with pytest.raises(ValueError):
+            academic.content_detail(bb, cid, iid)
+
+
 def test_query_failure_is_not_an_empty_success():
     bb = BB()
     bb.results = lambda _: (_ for _ in ()).throw(ConnectionError())
@@ -103,6 +150,18 @@ def test_home_stays_compact_and_all_pages_render_without_school_calls(client):
     for kind in extras_routes.PAGES:
         assert client.get('/explore/' + kind).status_code == 200
     assert client.get('/api/announcements/c').json['items'][0]['id'] == 'new'
+
+
+def test_content_detail_route_uses_document_reader(client, monkeypatch):
+    calls = []
+    def detail(bb, cid, iid, prefix):
+        calls.append((cid, iid, prefix))
+        return {'items': [{'body_html': 'Full text'}], 'warnings': []}
+    monkeypatch.setattr(academic, 'content_detail', detail)
+    reply = client.get('/api/extras/content?op=detail&course=c&id=document')
+    assert reply.status_code == 200 and reply.json['items'][0]['body_html'] == 'Full text'
+    assert calls == [('c', 'document', '')]
+    assert reply.headers['Cache-Control'] == 'private, no-store'
 
 
 def test_preview_and_commit_are_csrf_guarded_and_one_shot(client, monkeypatch):
@@ -139,7 +198,8 @@ def test_runtime_protects_new_private_routes(monkeypatch, tmp_path):
     monkeypatch.setattr(authentication, 'load_owner_credentials', lambda: False)
     rt = runtime.Runtime()
     c = app.create_app(rt).test_client()
-    for path in ['/api/announcements/c', '/api/blackboard/grades', '/api/extras/evaluations', '/explore']:
+    for path in ['/api/announcements/c', '/api/blackboard/grades', '/api/extras/evaluations',
+                 '/api/extras/content?op=detail&course=c&id=document', '/explore']:
         assert c.get(path).status_code == 401
 
 

@@ -45,7 +45,7 @@
     }
     const extra=document.querySelector('[data-extra]');if(!extra)return;
     const kind=extra.dataset.extra,form=$('extra-form'),out=$('extra-results'),message=$('extra-message');
-    let loading=false,query={},review=null,operation=null;
+    let loading=false,query={},review=null,operation=null,detailRequest=0;
     const inputs={};
     function input(name,label,type='text',options=null){
       const wrap=node('label',label),control=node(options?'select':'input');control.name=name;
@@ -84,11 +84,21 @@
     function params(){return Object.fromEntries(new FormData(form));}
     function info(parent,values){const dl=node('dl','','extra-summary');for(const [label,value] of Object.entries(values)){if(value==null||value==='')continue;dl.append(node('dt',label),node('dd',typeof value==='object'?JSON.stringify(value):String(value)));}parent.append(dl);}
     function detailPanel(title){$('extra-detail-panel').hidden=false;$('extra-detail-title').textContent=title;const el=clear('extra-detail');return el;}
-    async function details(args,title){const el=detailPanel(title);notice(el,'正在读取详情…');try{const data=await campusJson('/api/extras/'+kind+'?'+new URLSearchParams(args));el.replaceChildren();renderItems(data,el,true,args);}catch(e){notice(el,e.message);}}
+    async function details(args,title){
+      const request=++detailRequest,el=detailPanel(title);el.setAttribute('aria-busy','true');notice(el,'正在读取详情…');
+      if(kind==='content')history.replaceState(null,'','?'+new URLSearchParams({course:args.course,id:args.id}));
+      $('extra-detail-panel').scrollIntoView({block:'start'});$('extra-detail-title').focus({preventScroll:true});
+      try{const data=await campusJson('/api/extras/'+kind+'?'+new URLSearchParams(args));if(request!==detailRequest)return;
+        el.replaceChildren();for(const warning of data.warnings||[])el.append(node('p',warning,'notice'));
+        if(data.warnings?.length)el.append(button('重新读取详情',()=>details(args,title),'secondary'));
+        renderItems(data,el,true,args);
+      }catch(e){if(request!==detailRequest)return;notice(el,e.message);el.append(button('重试详情',()=>details(args,title),'secondary'));}
+      finally{if(request===detailRequest)el.removeAttribute('aria-busy');}
+    }
     async function preview(payload){notice(message,'正在核对学校当前状态…');$('extra-review').hidden=true;review=null;
       try{const r=await campusPost('/api/extras/'+kind+'/preview',payload);review=r;operation=crypto.randomUUID();const el=clear('extra-review-body');info(el,r.summary);$('extra-review').hidden=false;$('extra-confirm').disabled=false;notice(message,'请核对下方本次操作内容；确认后才会发送。');$('extra-review').scrollIntoView({block:'start'});}catch(e){notice(message,e.message);}}
     $('extra-confirm').onclick=async()=>{if(!review)return;const b=$('extra-confirm');b.disabled=true;try{const r=await campusPost('/api/extras/'+kind+'/commit',{review_id:review.review_id,operation_id:operation,confirmed:true});review=null;$('extra-review').hidden=true;notice(message,r.message,r.state==='confirmed');if(r.official_url)message.append(safeLink('查看学校记录',r.official_url));if(r.receipt_number)message.append(node('p','申请编号：'+r.receipt_number));}catch(e){notice(message,e.message);b.disabled=false;}};
-    $('extra-cancel').onclick=()=>{review=null;$('extra-review').hidden=true;};$('extra-close').onclick=()=>{$('extra-detail-panel').hidden=true;};
+    $('extra-cancel').onclick=()=>{review=null;$('extra-review').hidden=true;};$('extra-close').onclick=()=>{detailRequest++;$('extra-detail-panel').hidden=true;if(kind==='content')history.replaceState(null,'',location.pathname);};
     async function load(args=params()){
       if(loading)return;loading=true;submit.disabled=true;query={...args};notice(message,'正在查询…');out.setAttribute('aria-busy','true');
       try{const data=await campusJson('/api/extras/'+kind+'?'+new URLSearchParams(args));out.replaceChildren();clear('extra-pages');notice(message,(data.warnings||[]).join('；'));$('extra-note').textContent=data.note||'';$('service-updated').textContent='最近查询：'+timestamp(data.updated_at);
@@ -134,7 +144,19 @@
           if(isDetail){info(el,{'作者':(item.authors||[]).join('、'),'出版':item.publisher,'年份':item.year,'语言':item.language,'主题':(item.subjects||[]).join('、'),'ISBN':item.isbn,'摘要':item.abstract,'全文':item.full_text_availability});if(item.online_url)el.append(safeLink('全文入口',item.online_url));}
           if(item.url||item.detail_url)r.append(safeLink('图书馆原页面',item.url||item.detail_url));
         }else if(kind==='content'){
-          const r=row(el,item.title,`${item.course} · ${typeName(item.kind)} · ${(item.folders||[]).join(' / ')}`);r.append(safeLink('打开课程内容',item.url));if(item.excerpt)r.append(node('p',item.excerpt,'extra-body'));
+          const r=row(el,item.title,`${item.course} · ${typeName(item.kind)}${item.folders?.length?' · '+item.folders.join(' / '):''}`);
+          if(!isDetail){
+            r.append(button(item.kind==='folder'?'展开文件夹':'查看全文与附件',()=>details({op:'detail',course:item.course_id,id:item.id},item.title),'secondary'));
+            if(item.excerpt)r.append(node('p',item.excerpt,'extra-body'));
+          }else{
+            $('extra-detail-title').textContent=item.title;
+            if(item.body_html){const body=node('div','','rich content-body');body.innerHTML=item.body_html;el.append(body);}
+            if(item.external_url)el.append(safeLink('打开链接',item.external_url));
+            if(item.attachments?.length){el.append(node('h3','附件'));for(const a of item.attachments){const file=row(el,a.name,'');file.append(safeLink('下载附件',a.url));}}
+            if(item.children?.length){el.append(node('h3','文件夹内容'));renderItems({items:item.children},el,false,args);}
+            if(!item.body_html&&!item.attachments?.length&&!item.children?.length&&!item.external_url&&!data.warnings?.length)el.append(node('p',item.kind==='folder'?'此文件夹暂无可见内容。':'此条目没有正文或附件。','muted'));
+          }
+          r.append(safeLink('Blackboard 原页面',item.url));
         }else if(kind==='cle'){
           if(args.op==='catalog'){row(el,item.name,`${item.teachers??'—'} 位老师`);continue;}
           const r=row(el,item.service||'语言指导',[item.when,item.teacher,item.room].filter(Boolean).join(' · '),item.status||'');
@@ -154,6 +176,7 @@
     }
     form.onsubmit=e=>{e.preventDefault();kind==='borrow'?preview(params()):load();};
     if(kind==='borrow'){$('extra-note').textContent='先从空闲教室中选择场地。提交前重新核对权限、课程占用和临时借用；发送的是审批申请。';}
+    else if(kind==='content'&&new URLSearchParams(location.search).has('id')){const initial=new URLSearchParams(location.search);details({op:'detail',course:initial.get('course')||'',id:initial.get('id')},'课程内容');}
     else if(['faculty','evaluations','transit'].includes(kind))load();
     else empty(out,'设置查询条件后点击查询。');
   });

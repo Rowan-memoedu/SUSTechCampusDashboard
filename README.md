@@ -6,6 +6,8 @@
 
 **0.5.25 Windows 已正式发布并与本机同步。**打印上传适配学校现行回执格式，并在入队延迟时只读核对、不重复发送。[公共入口](https://124.221.144.155/app/) 仅提供静态发布与帮助。当前 Windows 构建、公开升级及本机实测见[0.5.25 验收记录](docs/RELEASE-0.5.25-ACCEPTANCE.md)，历史迁移见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。当前 Linux 分发目标保留为 0.5.9。
 
+0.5.28 增加课程内容详情：从“检索课程正文与链接”打开结果，可在面板内查看完整正文、下载附件并逐层展开文件夹；没有评分列的项目说明也可读取。详情链接支持直接打开，保留 Blackboard 原页面入口。
+
 完整范围、迁移和服务器资源清理见 [第二阶段总计划](docs/WEB-HOSTED-PLAN.md)，新 Thread 从 [执行交接](docs/LOCAL-MODE-HANDOFF.md) 开始。取消集中托管后保留本地缓存和文件复用，跨用户共享服务退役，见 [复用与下载规则](docs/SHARED-METADATA-AND-DOWNLOADS.md)。
 
 既有 0.3.5 可用 `campus-client.exe --local-only` 进入本机设置并检查签名更新。[第一阶段记录](docs/HOSTED-PHASE1.md)保留历史实现与验收，不作为继续扩建托管的计划。旧数据迁移、服务停止和资源删除须分别有实际回读证据。

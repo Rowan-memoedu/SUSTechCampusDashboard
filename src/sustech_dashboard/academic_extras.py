@@ -10,6 +10,46 @@ from .core import CHINA_TZ
 from datetime import datetime
 
 
+def _content_summary(course, item):
+    return {'id': item['id'], 'course_id': course['id'], 'course': course['name'],
+            'title': item.get('title') or '未命名内容',
+            'kind': item.get('contentHandler', {}).get('id', 'other').removeprefix('resource/x-bb-'),
+            'folders': item.get('_folder_path', []),
+            'excerpt': BeautifulSoup(item.get('body') or '', 'html.parser').get_text(' ', strip=True)[:400],
+            'url': BB_BASE + '/webapps/blackboard/execute/displayIndividualContent?' +
+            f'course_id={quote(course["id"], safe="")}&content_id={quote(item["id"], safe="")}'}
+
+
+def content_detail(bb, cid, iid, prefix=''):
+    course = course_in_scope(bb, cid)
+    if not isinstance(iid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', iid):
+        raise ValueError('课程内容标识无效')
+    root = f'/learn/api/public/v1/courses/{quote(cid, safe="")}/contents/{quote(iid, safe="")}'
+    item = bb.json(root)  # The school checks this owner's content visibility.
+    result = dict(_content_summary(course, item), body_html=safe_html(item.get('body'), prefix),
+                  attachments=[], children=[])
+    warnings = []
+    if item.get('hasChildren'):
+        try:
+            result['children'] = [_content_summary(course, child) for child in bb.results(root + '/children')]
+        except Exception:
+            warnings.append('文件夹内容暂未读取成功，请重试或查看 Blackboard 原页面')
+    if result['kind'] in {'document', 'file', 'assignment'}:
+        try:
+            result['attachments'] = [
+                {'name': a.get('fileName') or '附件',
+                 'url': prefix + '/api/blackboard-resource?path=' +
+                 quote(root + '/attachments/' + quote(a['id'], safe='') + '/download', safe='') +
+                 '&name=' + quote(a.get('fileName') or '附件', safe='')}
+                for a in bb.results(root + '/attachments')]
+        except Exception:
+            warnings.append('附件清单暂未读取成功，请重试或查看 Blackboard 原页面')
+    external = item.get('contentHandler', {}).get('url')
+    if isinstance(external, str) and urlparse(external).scheme in {'http', 'https'}:
+        result['external_url'] = external
+    return {'items': [result], 'warnings': warnings, 'updated_at': datetime.now(CHINA_TZ).isoformat()}
+
+
 def course_in_scope(bb, cid):
     course = next((c for c in bb.current_courses() if c['id'] == cid), None)
     if course is None:
@@ -140,11 +180,7 @@ def content_search(bb, args, prefix=''):
                 continue
             if query and query not in (' '.join([course['name'], item.get('title', ''), body, *item.get('_folder_path', [])])).casefold():
                 continue
-            items.append({'id': item['id'], 'course_id': course['id'], 'course': course['name'],
-                          'title': item.get('title') or '未命名内容', 'kind': content_kind,
-                          'folders': item.get('_folder_path', []), 'excerpt': body[:400],
-                          'url': BB_BASE + '/webapps/blackboard/execute/displayIndividualContent?' +
-                          f'course_id={quote(course["id"], safe="")}&content_id={quote(item["id"], safe="")}'})
+            items.append(_content_summary(course, item))
     return {'items': items[(page-1)*20:page*20], 'total': len(items), 'page': page,
             'counts': counts, 'courses': courses, 'warnings': warnings,
             'updated_at': datetime.now(CHINA_TZ).isoformat()}

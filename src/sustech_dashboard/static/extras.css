@@ -10,6 +10,10 @@
 #extra-form label{max-width:100%;flex:1 1 160px}
 #extra-form button,.extra-nav a,#extra-pages button,#extra-confirm,#extra-cancel{white-space:nowrap}
 #extra-results .row{flex-wrap:wrap}
+#extra-detail .row{flex-wrap:wrap}
+#extra-detail .row a,#extra-detail .row button{white-space:nowrap}
+.content-body{overflow-wrap:anywhere;max-width:100%;overflow-x:auto}
+.content-body pre{white-space:pre-wrap}
 .extra-body{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
 .extra-fields{display:grid;gap:12px;margin:14px 0}
 .extra-fields label{display:grid;gap:5px}

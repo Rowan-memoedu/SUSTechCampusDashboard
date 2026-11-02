@@ -59,6 +59,9 @@ def register_extras(app, guard, csrf, public_error):
         if kind == 'content':
             from .app import Blackboard, _bb_lock
             with _bb_lock:
+                if request.args.get('op') == 'detail':
+                    return academic_extras.content_detail(Blackboard(), request.args.get('course', ''),
+                                                          request.args.get('id', ''), request.script_root)
                 return academic_extras.content_search(Blackboard(), request.args, request.script_root)
         functions = {'transit': campus_extras.transit, 'nces': campus_extras.nces,
                      'programs': campus_extras.programs, 'faculty': campus_extras.faculty,
