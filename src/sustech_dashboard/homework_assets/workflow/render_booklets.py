@@ -1,6 +1,6 @@
 """The common, scoped Markdown-to-TeX step for the three homework booklets."""
 from pathlib import Path
-import re,json,sys,hashlib
+import re,json,sys,hashlib,time
 
 BASE=Path(__file__).resolve().parent.parent
 PREAMBLE=r'''% !TEX program = tectonic
@@ -116,6 +116,19 @@ def writing_page(hw,id,index):
 \foreach \y in {21,29,...,277} {\draw[Rule,line width=0.32pt] (18,\y) -- (192,\y);}
 \end{scope}\end{tikzpicture}\null
 '''
+
+def prepare_page_directory(root):
+    root=Path(root).resolve()
+    out=root/'review/pdf-pages'
+    assert out.resolve().is_relative_to(root),'Preview directory must stay within this homework'
+    if out.exists():
+        history=root/'review/pdf-page-history'/str(time.time_ns())
+        assert history.resolve().is_relative_to(root),'Preview history must stay within this homework'
+        history.parent.mkdir(parents=True,exist_ok=True)
+        out.rename(history)
+    out.mkdir(parents=True,exist_ok=True)
+    return out
+
 
 def build(hw,modules):
     root=BASE/hw['directory'];out=root/'build';out.mkdir(exist_ok=True)

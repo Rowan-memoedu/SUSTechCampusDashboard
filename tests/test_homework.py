@@ -213,6 +213,23 @@ def test_finalizer_checks_real_prose_without_treating_tex_commands_as_words(monk
     assert finalizer.prose_tokens(body) == ['net', 'acceleration', 'is', 'inward', '必', '须', '保', '留', '正', '文']
 
 
+def test_preview_rerender_archives_old_pages_and_starts_empty(tmp_path):
+    import importlib.util
+    from sustech_dashboard.homework_engine import ASSETS
+    spec = importlib.util.spec_from_file_location('preview_renderer', ASSETS / 'render_booklets.py')
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+    pages = tmp_path / 'review/pdf-pages'
+    pages.mkdir(parents=True)
+    (pages / 'solutions-99.png').write_bytes(b'old preview')
+    source = tmp_path / '题目.md'
+    source.write_bytes(b'protected source')
+    assert renderer.prepare_page_directory(tmp_path) == pages.resolve()
+    assert list(pages.iterdir()) == []
+    assert next((tmp_path / 'review/pdf-page-history').glob('*/solutions-99.png')).read_bytes() == b'old preview'
+    assert source.read_bytes() == b'protected source'
+
+
 def test_cooperative_checkpoint_releases_worker_and_preserves_english(tmp_path, monkeypatch):
     fixture_toolchain(tmp_path, monkeypatch)
     runner = engine(tmp_path)

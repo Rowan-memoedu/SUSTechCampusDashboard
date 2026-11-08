@@ -113,14 +113,16 @@ class HomeworkEngine:
         # Update only known official tool bytes, preserving user-modified tools.
         upgrades = {
             'render_booklets.py': {'0c701a3c78d7d6d7a7a149f062531422c1bcc4def9136a96e2dca12d66819f59',
-                                  '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa'},
+                                  '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa',
+                                  '519951df2c2ac338dbec0787aeaaf052a0b71fad125fb811019797f2da3de725'},
+            'verify_booklets.py': {'35ca062faa53b433014b34e6564be1a6a3d94127b821234b8afbebf25c207ef7'},
             'finalize_booklets.py': {'fe26be824d1aa0eb443e4ec5ae7717fc1312d2e0630a5f0b128ccd494aab24fe'}}
         for name, known_hashes in upgrades.items():
             target = root / 'workflow' / name
             original_hash = hashlib.sha256(target.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
             if original_hash in known_hashes and file_sha(target) != file_sha(ASSETS / name):
                 shutil.copyfile(ASSETS / name, target)
-                if name == 'render_booklets.py':
+                if name in ('render_booklets.py', 'verify_booklets.py'):
                     job['data'].get('pipeline', {}).pop('compiled', None)
         (root / 'work/review').mkdir(parents=True, exist_ok=True)
         save(root / 'toolchain.json', toolchain(self.settings()))

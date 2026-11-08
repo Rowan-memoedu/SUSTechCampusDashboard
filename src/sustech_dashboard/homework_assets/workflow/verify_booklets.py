@@ -4,7 +4,7 @@ import json,re,hashlib,math,sys
 from pypdf import PdfReader
 import pypdfium2 as pdfium
 from PIL import Image,ImageOps,ImageDraw
-from render_booklets import BASE,read_sections,solution_sections
+from render_booklets import BASE,read_sections,solution_sections,prepare_page_directory
 
 # Only standalone headings delimit assignments; prose can cite other problems.
 PROBLEM_HEADING=r'^Problem[ \t]+(\d+(?:\.\d+)*)[ \t]*$'
@@ -40,7 +40,7 @@ for hw in sets:
         assert local['directory']==hw['directory'] and local['ids']==hw['ids']
         hw.update(local)
     assert list(q)==hw['ids']==list(answers)
-    out=root/'review/pdf-pages';out.mkdir(parents=True,exist_ok=True)
+    out=prepare_page_directory(root)
     results=[]
     for module,key in [('questions','question_pdf'),('writing','writing_pdf'),('solutions','solution_pdf')]:
         # Retain already verified physics question/writing PDFs without rebuilding.
