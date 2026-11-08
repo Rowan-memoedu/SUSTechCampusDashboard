@@ -1,11 +1,46 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from sustech_dashboard import homework_backend as backend
+from sustech_dashboard.homework_recovery import StageFailure
+
+
+@pytest.mark.parametrize('status', ['PASS', 'FAIL'])
+def test_codex_teardown_error_preserves_matching_completed_structured_result(tmp_path, monkeypatch, status):
+    monkeypatch.setattr(backend, 'toolchain', lambda settings: {'codex': sys.executable})
+    result = {'status': status, 'findings': [] if status == 'PASS' else ['real defect']}
+    def completed(args, root, log, *extra, **kwargs):
+        Path(args[args.index('-o') + 1]).write_text(json.dumps(result), encoding='utf-8')
+        events = [{'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps(result)}},
+                  {'type': 'turn.completed'}]
+        Path(log).write_text('\n'.join(json.dumps(event) for event in events), encoding='utf-8')
+        raise StageFailure('CLI teardown failed', kind='retry', returncode=1)
+    monkeypatch.setattr(backend, 'command', completed)
+    assert backend.CodexBackend().run(tmp_path, 'review', 'fixture', {}) == result
+    assert list((tmp_path / 'agent-runs').glob('*/completed-result-recovery.json'))
+
+
+@pytest.mark.parametrize('fault', ['interrupted', 'failed', 'mismatched', 'missing_output', 'invalid_json'])
+def test_codex_nonzero_without_committed_terminal_evidence_still_retries(tmp_path, monkeypatch, fault):
+    monkeypatch.setattr(backend, 'toolchain', lambda settings: {'codex': sys.executable})
+    def incomplete(args, root, log, *extra, **kwargs):
+        output = Path(args[args.index('-o') + 1])
+        if fault != 'missing_output':
+            output.write_text('{bad' if fault == 'invalid_json' else '{"status":"PASS"}', encoding='utf-8')
+        text = '{"status":"FAIL"}' if fault == 'mismatched' else '{"status":"PASS"}'
+        events = [{'type': 'item.completed', 'item': {'type': 'agent_message', 'text': text}}]
+        if fault != 'interrupted':
+            events.append({'type': 'turn.failed' if fault == 'failed' else 'turn.completed'})
+        Path(log).write_text('\n'.join(json.dumps(event) for event in events), encoding='utf-8')
+        raise StageFailure('CLI failed', kind='retry', returncode=None if fault == 'interrupted' else 1)
+    monkeypatch.setattr(backend, 'command', incomplete)
+    with pytest.raises(StageFailure):
+        backend.CodexBackend().run(tmp_path, 'review', 'fixture', {})
 
 
 @pytest.mark.parametrize('available', ['configured', 'environment', 'path', 'registered', None])
