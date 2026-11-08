@@ -3,11 +3,10 @@ from datetime import datetime, timezone
 
 
 class StageFailure(ValueError):
-    def __init__(self, message, *, kind='regenerate', phase=None, returncode=None):
+    def __init__(self, message, *, kind='regenerate', phase=None):
         super().__init__(message)
         self.kind = kind
         self.phase = phase
-        self.returncode = returncode
 
 
 # These boundaries cannot be resolved by repeating or relaxing an audit.

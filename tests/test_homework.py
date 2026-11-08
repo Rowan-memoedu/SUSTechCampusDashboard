@@ -173,9 +173,12 @@ def test_setup_upgrades_legacy_renderer_and_invalidates_only_compile(tmp_path, m
     root = runner.setup(job)
     renderer = root / 'workflow/render_booklets.py'
     renderer.write_bytes(b'legacy\r\nrenderer\r\n')
+    import hashlib
     def known_digest(content):
-        assert content == b'legacy\nrenderer\n'
-        return SimpleNamespace(hexdigest=lambda: '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa')
+        assert b'\r\n' not in content
+        if content == b'legacy\nrenderer\n':
+            return SimpleNamespace(hexdigest=lambda: '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa')
+        return hashlib.sha256(content)
     monkeypatch.setattr(module, 'hashlib', SimpleNamespace(sha256=known_digest))
     job['data']['pipeline'] = {'english': True, 'translation': True, 'compiled': True}
     runner.setup(job)
@@ -193,6 +196,21 @@ def test_renderer_tables_preserve_math_cells_and_following_prose(tmp_path):
     assert r'\begin{tabularx}' in result and r'\end{tabularx}' in result
     assert r'$x_i$' in result and r'$\frac{1}{2}$' in result
     assert 'Before.' in result and 'After.' in result and ':---' not in result
+
+
+def test_finalizer_checks_real_prose_without_treating_tex_commands_as_words(monkeypatch):
+    import importlib.util
+    import sys
+    from sustech_dashboard.homework_engine import ASSETS
+    renderer_spec = importlib.util.spec_from_file_location('render_booklets', ASSETS / 'render_booklets.py')
+    renderer = importlib.util.module_from_spec(renderer_spec)
+    renderer_spec.loader.exec_module(renderer)
+    monkeypatch.setitem(sys.modules, 'render_booklets', renderer)
+    spec = importlib.util.spec_from_file_location('finalizer', ASSETS / 'finalize_booklets.py')
+    finalizer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(finalizer)
+    body = r'Net $g$ acceleration \(g_r\) is \[\mathbf g=-\frac{GM}{R^2}\hat r\] inward. $$x^2$$ 必须保留正文。'
+    assert finalizer.prose_tokens(body) == ['net', 'acceleration', 'is', 'inward', '必', '须', '保', '留', '正', '文']
 
 
 def test_cooperative_checkpoint_releases_worker_and_preserves_english(tmp_path, monkeypatch):

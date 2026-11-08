@@ -21,6 +21,11 @@ def save(path, data):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
+def prose_tokens(prose):
+    prose = re.sub(r'!\[[^\]]*\]\([^)]*\)|\$\$[\s\S]*?\$\$|\$[^$]+\$|\\\[[\s\S]*?\\\]|\\\([^\n]*?\\\)', '', prose)
+    return re.findall(r'[a-z]+|[\u4e00-\u9fff]', prose.lower())
+
+
 def validate_ai_review(root, hw, report, review):
     assert review['schema_version'] == 1
     assert review['directory'] == hw['directory']
@@ -108,8 +113,7 @@ def main():
         assert [chunks[i] for i in range(1, len(chunks), 2)] == ids
         for i in range(1, len(chunks), 2):
             prose = answers[chunks[i]].split('#### Solution', 1)[1]
-            prose = re.sub(r'!\[[^\]]*\]\([^)]*\)|\$\$[\s\S]*?\$\$|\$[^$]+\$', '', prose)
-            tokens = re.findall(r'[a-z]+|[\u4e00-\u9fff]', prose.lower())
+            tokens = prose_tokens(prose)
             actual = ''.join(re.findall(r'[a-z]+|[\u4e00-\u9fff]', chunks[i + 1].split('Solution', 1)[1].lower()))
             cursor = 0
             for token in tokens:

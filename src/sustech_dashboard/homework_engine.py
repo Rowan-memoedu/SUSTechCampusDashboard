@@ -110,14 +110,18 @@ class HomeworkEngine:
             shutil.copytree(ASSETS, root / 'workflow')
         if not (root / 'workflow/crop_figures.py').exists():
             shutil.copyfile(ASSETS / 'crop_figures.py', root / 'workflow/crop_figures.py')
-        # Upgrade the shipped legacy renderer only when its original bytes match.
-        renderer = root / 'workflow/render_booklets.py'
-        original_hash = hashlib.sha256(renderer.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
-        legacy_renderers = {'0c701a3c78d7d6d7a7a149f062531422c1bcc4def9136a96e2dca12d66819f59',
-                            '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa'}
-        if original_hash in legacy_renderers and file_sha(renderer) != file_sha(ASSETS / renderer.name):
-            shutil.copyfile(ASSETS / renderer.name, renderer)
-            job['data'].get('pipeline', {}).pop('compiled', None)
+        # Update only known official tool bytes, preserving user-modified tools.
+        upgrades = {
+            'render_booklets.py': {'0c701a3c78d7d6d7a7a149f062531422c1bcc4def9136a96e2dca12d66819f59',
+                                  '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa'},
+            'finalize_booklets.py': {'fe26be824d1aa0eb443e4ec5ae7717fc1312d2e0630a5f0b128ccd494aab24fe'}}
+        for name, known_hashes in upgrades.items():
+            target = root / 'workflow' / name
+            original_hash = hashlib.sha256(target.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+            if original_hash in known_hashes and file_sha(target) != file_sha(ASSETS / name):
+                shutil.copyfile(ASSETS / name, target)
+                if name == 'render_booklets.py':
+                    job['data'].get('pipeline', {}).pop('compiled', None)
         (root / 'work/review').mkdir(parents=True, exist_ok=True)
         save(root / 'toolchain.json', toolchain(self.settings()))
         save(root / 'feedback.json', job['data'].get('feedback', []))

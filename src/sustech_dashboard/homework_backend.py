@@ -59,7 +59,7 @@ def command(args, cwd, log, stop=None, timeout=7200, input_text=None, env=None, 
                 if stop is None:
                     time.sleep(.5)
             if process.returncode:
-                raise StageFailure(f'后台步骤未通过（退出码 {process.returncode}），日志与材料已保留，将自动重试', kind='retry', returncode=process.returncode)
+                raise StageFailure(f'后台步骤未通过（{log.name}，退出码 {process.returncode}），日志与材料已保留，将自动重试', kind='retry')
         finally:
             terminate(process)
 
@@ -161,27 +161,7 @@ class CodexBackend:
             evidence.append({'path': name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
         (run / 'attached-images.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
         args.append('-')
-        try:
-            command(args, root, run / 'events.jsonl', self.stop, input_text=prompt, env=clean_env())
-        except StageFailure as exc:
-            # A CLI teardown error can follow a fully committed structured result.
-            # Require matching terminal evidence; interrupted/failed turns still retry.
-            if exc.returncode is None or (self.stop is not None and self.stop.is_set()) or not output.is_file():
-                raise
-            try:
-                events = [json.loads(line) for line in (run / 'events.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
-                messages = [event['item']['text'] for event in events
-                            if event.get('type') == 'item.completed' and event.get('item', {}).get('type') == 'agent_message']
-                result = json.loads(output.read_text(encoding='utf-8'))
-                completed = events[-1].get('type') == 'turn.completed'
-                failed = any(event.get('type') in ('turn.failed', 'error') for event in events)
-                if not isinstance(result, dict) or not completed or failed or not messages or json.loads(messages[-1]) != result:
-                    raise ValueError('Incomplete CLI terminal evidence')
-            except (OSError, ValueError, KeyError, IndexError, TypeError):
-                raise exc
-            (run / 'completed-result-recovery.json').write_text(json.dumps({
-                'returncode': exc.returncode, 'result_sha256': hashlib.sha256(output.read_bytes()).hexdigest(),
-                'terminal_event': 'turn.completed', 'final_message_matches': True}), encoding='utf-8')
+        command(args, root, run / 'events.jsonl', self.stop, input_text=prompt, env=clean_env())
         if not output.is_file():
             raise ValueError('Codex 未返回结构化结果，不能将本阶段标记为成功')
         return json.loads(output.read_text(encoding='utf-8'))
