@@ -4,7 +4,7 @@
 
 安装与运行见 [客户端说明](CLIENT-README.md)，更新、签名与维护流程见 [UPDATING.md](UPDATING.md)。源码公开，可 fork 后自行部署；凭据、校园数据、运行数据库和下载文件均不在仓库中。
 
-**0.5.29 Windows 已正式发布并与本机同步。**修复作业来源审核的页面覆盖误判、标准 TeX 公式渲染和教材原路径失效后的副本复用。课程内容检索继续支持完整正文、附件下载和文件夹展开。[公共入口](https://124.221.144.155/app/) 提供静态发布与帮助。当前 Windows 构建、公开升级及本机实测见[0.5.29 验收记录](docs/RELEASE-0.5.29-ACCEPTANCE.md)，历史迁移见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。当前 Linux 分发目标保留为 0.5.9。
+**0.5.33 Windows 已正式发布并与本机同步。**修复作业来源审核误判、TeX 与表格渲染、旧预览残留、教材副本复用和最终正文验收，物理 Ch12、Ch13 与线代第八次作业已完成。课程内容检索支持完整正文、附件下载和文件夹展开。[公共入口](https://124.221.144.155/app/) 提供静态发布与帮助。当前 Windows 构建、公开升级及本机实测见[0.5.33 验收记录](docs/RELEASE-0.5.33-ACCEPTANCE.md)，历史迁移见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。当前 Linux 分发目标保留为 0.5.9。
 
 完整范围、迁移和服务器资源清理见 [第二阶段总计划](docs/WEB-HOSTED-PLAN.md)，新 Thread 从 [执行交接](docs/LOCAL-MODE-HANDOFF.md) 开始。取消集中托管后保留本地缓存和文件复用，跨用户共享服务退役，见 [复用与下载规则](docs/SHARED-METADATA-AND-DOWNLOADS.md)。
 
