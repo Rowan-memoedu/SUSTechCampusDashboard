@@ -35,7 +35,8 @@ PLAN = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']},
     'source_pages': {'type': 'array', 'items': obj({'id': STRING, 'images': STRINGS})}})
 RESULT = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING})
 LAYOUT = obj({'questions_per_page': {'type': 'integer', 'enum': [1, 2]},
-              'solution_line_spread': {'type': 'number', 'minimum': 1.0, 'maximum': 1.3}, 'notes': STRING})
+              'solution_line_spread': {'type': 'number', 'minimum': 1.0, 'maximum': 1.3},
+              'solution_parskip_em': {'type': 'number', 'minimum': 0, 'maximum': 0.4}, 'notes': STRING})
 FIGURES = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING,
     'figures': {'type': 'array', 'items': obj({'path': STRING, 'source_page': STRING,
         'box': {'type': 'array', 'items': {'type': 'integer'}, 'minItems': 4, 'maxItems': 4}, 'notes': STRING})}})
@@ -112,7 +113,9 @@ class HomeworkEngine:
         # Upgrade the shipped legacy renderer only when its original bytes match.
         renderer = root / 'workflow/render_booklets.py'
         original_hash = hashlib.sha256(renderer.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
-        if original_hash == '0c701a3c78d7d6d7a7a149f062531422c1bcc4def9136a96e2dca12d66819f59' and file_sha(renderer) != file_sha(ASSETS / renderer.name):
+        legacy_renderers = {'0c701a3c78d7d6d7a7a149f062531422c1bcc4def9136a96e2dca12d66819f59',
+                            '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa'}
+        if original_hash in legacy_renderers and file_sha(renderer) != file_sha(ASSETS / renderer.name):
             shutil.copyfile(ASSETS / renderer.name, renderer)
             job['data'].get('pipeline', {}).pop('compiled', None)
         (root / 'work/review').mkdir(parents=True, exist_ok=True)
@@ -398,11 +401,16 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
                 layout = self.ai(root, 'layout-repair', '''只读检查 feedback.json、work/homework.json 和失败的成品页面。
 返回已有渲染器支持的排版参数，不修改正文、图像、工具或审核文件，不删除内容来使版面通过。
 题目过满可将 questions_per_page 从 2 改成 1；答案孤立续页可在 1.0–1.3 内调整 solution_line_spread。
+solution_parskip_em 是段间距，默认 0.15，可在 0–0.4 内调整；行距已到 1.0 仍有少量孤立续文时，可减小段间距。
 作答册仍固定每题两页。说明选择依据；程序应用参数后会重新编译，并由独立审核逐页验收。''', LAYOUT,
                     images=images, read_only=True)
                 if type(layout.get('questions_per_page')) is not int or layout['questions_per_page'] not in (1, 2) or not isinstance(layout.get('solution_line_spread'), (int, float)) or not 1 <= layout['solution_line_spread'] <= 1.3:
                     raise StageFailure('排版恢复参数超出既有渲染器范围', kind='retry')
+                spacing = layout.get('solution_parskip_em', 0.15)
+                if type(spacing) not in (int, float) or not 0 <= spacing <= 0.4:
+                    raise StageFailure('排版恢复段间距超出既有渲染器范围', kind='retry')
                 data['layout'] = {key: layout[key] for key in ('questions_per_page', 'solution_line_spread')}
+                data['layout']['solution_parskip_em'] = spacing
             if failed == 'visual':
                 # The user's book/question choice remains valid: only derived
                 # crops may change, with immutable originals/prose and separate review.

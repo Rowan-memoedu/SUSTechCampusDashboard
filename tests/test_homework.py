@@ -164,19 +164,35 @@ def test_renderer_preserves_standard_tex_math_delimiters(tmp_path):
 
 
 def test_setup_upgrades_legacy_renderer_and_invalidates_only_compile(tmp_path, monkeypatch):
+    import sustech_dashboard.homework_engine as module
+    from types import SimpleNamespace
     from sustech_dashboard.homework_engine import ASSETS
     fixture_toolchain(tmp_path, monkeypatch)
     runner = engine(tmp_path)
     job = runner.store.enqueue(assignment(), explicit=True)
     root = runner.setup(job)
     renderer = root / 'workflow/render_booklets.py'
-    current = (ASSETS / renderer.name).read_text(encoding='utf-8')
-    legacy = current[:current.index('    # Accept both standard TeX')] + current[current.index('    pattern=', current.index('def convert')):]
-    renderer.write_bytes(legacy.replace('\n', '\r\n').encode('utf-8'))
+    renderer.write_bytes(b'legacy\r\nrenderer\r\n')
+    def known_digest(content):
+        assert content == b'legacy\nrenderer\n'
+        return SimpleNamespace(hexdigest=lambda: '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa')
+    monkeypatch.setattr(module, 'hashlib', SimpleNamespace(sha256=known_digest))
     job['data']['pipeline'] = {'english': True, 'translation': True, 'compiled': True}
     runner.setup(job)
     assert renderer.read_bytes() == (ASSETS / renderer.name).read_bytes()
     assert job['data']['pipeline'] == {'english': True, 'translation': True}
+
+
+def test_renderer_tables_preserve_math_cells_and_following_prose(tmp_path):
+    import importlib.util
+    from sustech_dashboard.homework_engine import ASSETS
+    spec = importlib.util.spec_from_file_location('table_renderer', ASSETS / 'render_booklets.py')
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+    result = renderer.convert('Before.\n\n| Item | $x_i$ |\n| :--- | ---: |\n| A | $\\frac{1}{2}$ |\n| B | 4 |\n\nAfter.', tmp_path)
+    assert r'\begin{tabularx}' in result and r'\end{tabularx}' in result
+    assert r'$x_i$' in result and r'$\frac{1}{2}$' in result
+    assert 'Before.' in result and 'After.' in result and ':---' not in result
 
 
 def test_cooperative_checkpoint_releases_worker_and_preserves_english(tmp_path, monkeypatch):

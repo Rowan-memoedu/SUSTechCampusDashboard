@@ -6,7 +6,7 @@ BASE=Path(__file__).resolve().parent.parent
 PREAMBLE=r'''% !TEX program = tectonic
 \documentclass[11pt,a4paper,UTF8,fontset=none]{ctexart}
 \usepackage[margin=18mm]{geometry}
-\usepackage{amsmath,amssymb,graphicx,xcolor,tikz,fancyhdr}
+\usepackage{amsmath,amssymb,graphicx,xcolor,tikz,fancyhdr,tabularx,array}
 \setmainfont{Times New Roman}
 \setCJKmainfont{SimSun}
 \setCJKsansfont{Microsoft YaHei}
@@ -61,11 +61,22 @@ def convert(body,root):
     # Accept both standard TeX and Markdown math delimiters before escaping prose.
     body=re.sub(r'\\\[([\s\S]*?)\\\]',lambda m:'$$'+m.group(1)+'$$',body)
     body=re.sub(r'\\\(([\s\S]*?)\\\)',lambda m:'$'+m.group(1)+'$',body)
-    pattern=r'(!\[[^\]]*\]\([^)]*\)|\$\$[\s\S]*?\$\$|\$[^$]+\$|\*\*|^#### [^\n]+$|^---\s*$)'
+    table=r'^\|[^\n]+\|[ \t]*\n\|(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*(?:\n\|[^\n]+\|[ \t]*)+'
+    pattern='('+table+r'|!\[[^\]]*\]\([^)]*\)|\$\$[\s\S]*?\$\$|\$[^$]+\$|\*\*|^#### [^\n]+$|^---\s*$)'
     parts=re.split(pattern,body,flags=re.M)
     out=[];bold=False
     for part in parts:
-        if part=='**':
+        if re.fullmatch(table,part,flags=re.M):
+            rows=[re.split(r'(?<!\\)\|',line.strip()[1:-1]) for line in part.splitlines()]
+            count=len(rows[0])
+            assert all(len(row)==count for row in rows),'Inconsistent table column count'
+            content=[r'\begin{center}\small\begin{tabularx}{\linewidth}{@{}*{'+str(count)+r'}{>{\centering\arraybackslash}X}@{}}\hline']
+            for index,row in enumerate([rows[0]]+rows[2:]):
+                content.append(' & '.join(convert(cell.strip(),root) for cell in row)+r' \\')
+                if index==0:content.append(r'\hline')
+            content.append(r'\hline\end{tabularx}\end{center}')
+            out.append('\n'.join(content))
+        elif part=='**':
             out.append('}' if bold else r'\textbf{');bold=not bold
         elif part.startswith('!['):
             name=re.search(r'\]\((.*?)\)',part).group(1)
