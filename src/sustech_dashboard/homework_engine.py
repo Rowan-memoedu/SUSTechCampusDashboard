@@ -1,6 +1,7 @@
 """Course-level, two-confirmation workflow using the existing three-booklet tools."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -62,7 +63,7 @@ def headings(path):
 
 
 def math_spans(text):
-    return re.findall(r'\$\$[\s\S]*?\$\$|\$[^$\n]+\$', text)
+    return re.findall(r'\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\[[\s\S]*?\\\]|\\\([^\n]*?\\\)', text)
 
 
 class StageYield(Exception):
@@ -108,6 +109,12 @@ class HomeworkEngine:
             shutil.copytree(ASSETS, root / 'workflow')
         if not (root / 'workflow/crop_figures.py').exists():
             shutil.copyfile(ASSETS / 'crop_figures.py', root / 'workflow/crop_figures.py')
+        # Upgrade the shipped legacy renderer only when its original bytes match.
+        renderer = root / 'workflow/render_booklets.py'
+        original_hash = hashlib.sha256(renderer.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+        if original_hash == '0c701a3c78d7d6d7a7a149f062531422c1bcc4def9136a96e2dca12d66819f59' and file_sha(renderer) != file_sha(ASSETS / renderer.name):
+            shutil.copyfile(ASSETS / renderer.name, renderer)
+            job['data'].get('pipeline', {}).pop('compiled', None)
         (root / 'work/review').mkdir(parents=True, exist_ok=True)
         save(root / 'toolchain.json', toolchain(self.settings()))
         save(root / 'feedback.json', job['data'].get('feedback', []))
@@ -158,7 +165,9 @@ API 后端可用 workspace_file 的 list/read/write/image/pdf_text/pdf_render；
         source, resources = collect(self.bb_factory(), data['assignment'])
         from .homework_sources import supplement_resources
         source, resources = supplement_resources(source, resources,
-            self.store.setting('course_references:' + job['course_id'], []))
+            self.store.setting('course_references:' + job['course_id'], []),
+            [record for previous in self.store.list() if previous['course_id'] == job['course_id']
+             for record in previous['data'].get('downloads', [])])
         save(root / 'input.json', source)
         save(root / 'course-recipe.json', self.store.course(job['course_id'])['recipe'])
         result = self.ai(root, 'discover', '''读取 input.json 全部课程资源索引、作业正文和相关公告，并参考 course-recipe.json 的已有规则。
@@ -268,8 +277,13 @@ PASS 填 none；原题提取/来源错误填 extract；英文解答/答案图错
                      'figures': 'visual', 'render': 'layout'}.get(result.get('repair_stage'), default)
             raise StageFailure('独立审核未通过：' + ('；'.join(result.get('findings', [])) or
                 result.get('notes') or '审核记录未完整覆盖本次题目')[:4000], phase=phase)
-        if expected_pages is not None and set(result.get('reviewed_pages', [])) != set(expected_pages):
-            raise StageFailure('视觉审核未覆盖全部 PDF 页面', kind='retry')
+        if expected_pages is not None:
+            reviewed = set(result.get('reviewed_pages', []))
+            for name in reviewed:
+                if not confined(root, name).is_file():
+                    raise StageFailure('审核记录引用的页面不存在', kind='retry')
+            if not set(expected_pages) <= reviewed or (stage == 'final-review' and reviewed != set(expected_pages)):
+                raise StageFailure('审核未覆盖全部指定页面', kind='retry')
         return result
 
     def prepare_figures(self, root, data):

@@ -136,6 +136,49 @@ def test_model_review_routes_repair_to_first_affected_stage(tmp_path, monkeypatc
     assert caught.value.phase == 'english' and caught.value.kind == 'regenerate'
 
 
+def test_source_review_accepts_extra_real_evidence_but_requires_every_requested_page(tmp_path, monkeypatch):
+    runner = engine(tmp_path)
+    for name in ('required.png', 'extra.png'):
+        (tmp_path / name).write_bytes(b'fixture')
+    result = {'status': 'PASS', 'findings': [], 'problems': [{'id': '1'}],
+              'reviewed_pages': ['required.png', 'extra.png']}
+    monkeypatch.setattr(runner, 'ai', lambda *args, **kwargs: result)
+    assert runner.review(tmp_path, 'independent-review', '', ['1'], ['required.png']) == result
+    with pytest.raises(StageFailure):
+        runner.review(tmp_path, 'final-review', '', ['1'], ['required.png'])
+    result['reviewed_pages'] = ['extra.png']
+    with pytest.raises(StageFailure):
+        runner.review(tmp_path, 'independent-review', '', ['1'], ['required.png'])
+
+
+def test_renderer_preserves_standard_tex_math_delimiters(tmp_path):
+    import importlib.util
+    from sustech_dashboard.homework_engine import ASSETS, math_spans
+    spec = importlib.util.spec_from_file_location('renderer_fixture', ASSETS / 'render_booklets.py')
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+    text = r'Value \(x_1\), then \[\frac{a}{b^2}\] and $y$.'
+    actual = renderer.convert(text, tmp_path)
+    assert r'$x_1$' in actual and r'\displaymathfit{\frac{a}{b^2}}' in actual
+    assert len(math_spans(text)) == 3
+
+
+def test_setup_upgrades_legacy_renderer_and_invalidates_only_compile(tmp_path, monkeypatch):
+    from sustech_dashboard.homework_engine import ASSETS
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    root = runner.setup(job)
+    renderer = root / 'workflow/render_booklets.py'
+    current = (ASSETS / renderer.name).read_text(encoding='utf-8')
+    legacy = current[:current.index('    # Accept both standard TeX')] + current[current.index('    pattern=', current.index('def convert')):]
+    renderer.write_bytes(legacy.replace('\n', '\r\n').encode('utf-8'))
+    job['data']['pipeline'] = {'english': True, 'translation': True, 'compiled': True}
+    runner.setup(job)
+    assert renderer.read_bytes() == (ASSETS / renderer.name).read_bytes()
+    assert job['data']['pipeline'] == {'english': True, 'translation': True}
+
+
 def test_cooperative_checkpoint_releases_worker_and_preserves_english(tmp_path, monkeypatch):
     fixture_toolchain(tmp_path, monkeypatch)
     runner = engine(tmp_path)
@@ -564,6 +607,7 @@ def test_answer_images_are_attached_and_covered_by_independent_review(tmp_path, 
         'pipeline': {'english': True}})
     root = runner.setup(job)
     (root / 'work/solution-figures').mkdir()
+    (root / 'work/review/source.png').write_bytes(b'fixture only')
     (root / 'work/solution-figures/vector.png').write_bytes(b'fixture only')
     (root / 'work/答案册-英文.md').write_text(
         '### Problem 2.1\nDraw a vector.\n#### Solution\n![vector](solution-figures/vector.png)', encoding='utf-8')
@@ -843,6 +887,19 @@ def test_local_textbook_is_staged_without_network_or_exposing_original_path(tmp_
         supplement_resources({'resources': []}, {}, [reference])
     with pytest.raises(ValueError, match='变化'):
         download(None, reference, tmp_path / 'staged')
+
+
+def test_missing_local_textbook_reuses_identical_staged_ledger_copy(tmp_path):
+    book = tmp_path / 'original.pdf'
+    book.write_bytes(b'%PDF-1.4\nfixture')
+    reference = local_reference(book, 'Fixture')
+    staged = download(None, reference, tmp_path / 'staged')
+    book.unlink()
+    _, resources = supplement_resources({'resources': []}, {}, [reference], [staged])
+    assert resources[reference['key']]['path'] == staged['path']
+    Path(staged['path']).write_bytes(b'%PDF-1.4\nchanged')
+    with pytest.raises(FileNotFoundError):
+        supplement_resources({'resources': []}, {}, [reference], [staged])
 
 
 def test_local_textbook_rejects_non_pdf_and_modified_staged_copy(tmp_path):

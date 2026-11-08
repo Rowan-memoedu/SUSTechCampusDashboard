@@ -37,9 +37,16 @@ def local_reference(path, title=''):
             'sha256': sha, 'size': path.stat().st_size}
 
 
-def supplement_resources(source, resources, references):
+def supplement_resources(source, resources, references, staged=()):
     for record in references:
-        current = local_reference(record['path'], record['title'])
+        path = record['path']
+        if not Path(path).exists():
+            # Reuse only a same-course ledger entry with the identical content hash.
+            for candidate in staged:
+                if candidate.get('sha256') == record['sha256'] and Path(candidate['path']).is_file() and file_sha(candidate['path']) == record['sha256']:
+                    path = candidate['path']
+                    break
+        current = local_reference(path, record['title'])
         if current['sha256'] != record['sha256'] or current['key'] != record['key']:
             raise ValueError('本机补充教材已变化，需要重新核对来源')
         resources[current['key']] = current

@@ -58,6 +58,9 @@ def solution_sections(root,questions):
     return sections
 
 def convert(body,root):
+    # Accept both standard TeX and Markdown math delimiters before escaping prose.
+    body=re.sub(r'\\\[([\s\S]*?)\\\]',lambda m:'$$'+m.group(1)+'$$',body)
+    body=re.sub(r'\\\(([\s\S]*?)\\\)',lambda m:'$'+m.group(1)+'$',body)
     pattern=r'(!\[[^\]]*\]\([^)]*\)|\$\$[\s\S]*?\$\$|\$[^$]+\$|\*\*|^#### [^\n]+$|^---\s*$)'
     parts=re.split(pattern,body,flags=re.M)
     out=[];bold=False
