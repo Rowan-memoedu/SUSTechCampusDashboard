@@ -79,6 +79,8 @@ def publish(project, units, receipt_path, oj_config):
             path = confined(project, rel + '/' + item['path'])
             data = item['content'].encode('utf-8')
             key = rel + '/' + item['path']
+            if key in previous and sha(data) != previous[key]:
+                raise StageFailure('题面或来源发生变化，已保留原练习和新候选，需要核对', kind='blocked')
             if path.exists() and path.read_bytes() != data:
                 if key in previous and sha(path.read_bytes()) == previous[key]:
                     raise StageFailure('题面或来源发生变化，已保留原练习和新候选，需要核对', kind='blocked')
@@ -180,7 +182,7 @@ def connect(settings, registrations, workspace, stop):
             raise StageFailure('IDEA 接入已暂停，稍后自动续跑', kind='retry')
     try:
         command([str(executable), 'ideScript', str(script)], workspace, workspace / ('idea-' + attempt + '.log'),
-                stop, timeout=180, idle_timeout=0, env=env)
+                stop, timeout=240, idle_timeout=0, env=env)
     except StageFailure as exc:
         log = Path(settings.get('idea_log', executable.parent.parent / 'log/idea.log'))
         if log.is_file():

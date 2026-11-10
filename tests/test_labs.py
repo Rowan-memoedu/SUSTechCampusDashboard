@@ -74,6 +74,17 @@ def test_changed_published_source_requires_review_and_does_not_overwrite(tmp_pat
     assert (root / 'OJ/Practice/T9999_Test/src/Main.java').read_text() == 'class Main {}\n'
 
 
+def test_source_revision_conflict_preserves_an_in_progress_answer(tmp_path):
+    root, cfg = project(tmp_path), bridge(tmp_path)
+    record = tmp_path / 'published.json'
+    lab_idea.publish(root, [unit()], record, cfg)
+    source = root / 'OJ/Practice/T9999_Test/src/Main.java'
+    source.write_text('class Main { int myAnswer = 3; }\n')
+    with pytest.raises(StageFailure, match='来源发生变化'):
+        lab_idea.publish(root, [unit('class Main { int newContract; }')], record, cfg)
+    assert source.read_text() == 'class Main { int myAnswer = 3; }\n'
+
+
 def test_existing_binding_and_path_escape_fail_before_java_write(tmp_path):
     root, cfg = project(tmp_path), bridge(tmp_path)
     cfg.write_text(json.dumps({'bindings': [{'pid': 'T9999', 'project_root': str(root),
