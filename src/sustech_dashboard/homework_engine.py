@@ -685,9 +685,15 @@ reviewed_pages 必须列出每一张实际查看的 PDF 页图的工作区相对
             try:
                 with exclusive_file(self.root / 'worker.lock'):
                     self.store.recover()
+                    companion = getattr(self, 'companion', None)
+                    if companion is not None:
+                        companion.store.recover()
                     while not self.stop.is_set():
                         try:
-                            if not self.step():
+                            worked = self.step()
+                            if companion is not None:
+                                worked = companion.step() or worked
+                            if not worked:
                                 self.wake.wait(15)
                                 self.wake.clear()
                         except Exception as exc:

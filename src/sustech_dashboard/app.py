@@ -678,6 +678,13 @@ def create_app(runtime=None) -> Flask:
                               Blackboard, _bb_lock, runtime.stop if runtime is not None else None)
     app.extensions['homework'] = homework
     register_homework(app, homework, local_request, _public_error)
+    from .lab_engine import LabEngine
+    from .lab_routes import register_labs
+    labs = LabEngine(DATA_ROOT / 'labs', homework, Blackboard, _bb_lock,
+                     runtime.stop if runtime is not None else None)
+    app.extensions['labs'] = labs
+    homework.companion = labs
+    register_labs(app, labs, local_request, _public_error)
     if runtime is not None:
         runtime.homework = homework
     if runtime is not None:

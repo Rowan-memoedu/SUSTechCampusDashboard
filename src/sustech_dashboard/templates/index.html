@@ -15,7 +15,8 @@
 <label>显示<select id="material-filter"><option value="all">全部附件</option><option value="pending">未保存</option><option value="saved">已保存</option><option value="failed">下载失败</option></select></label>
 <button id="material-refresh" type="button" class="secondary">刷新附件清单</button><button id="material-download-all" type="button" disabled>全部资料下载</button><a href="{{ api_base }}/explore/content">检索课程正文与链接</a></div>
 <div class="material-auto"><label><input type="checkbox" id="material-auto">自动保存新资料</label><span class="muted">默认关闭，由你主动开启。开启后仅自动保存首次扫描之后新出现的本学期资料；已有资料请使用手动下载。本机离线时保留已提交的下载请求。</span></div>
-<p id="material-summary" class="muted">正在读取附件清单…</p><div id="material-message" class="notice" hidden role="status"></div><div id="material-jobs"></div><div id="material-courses"></div></section>
+<p id="material-summary" class="muted">正在读取附件清单…</p><div id="material-message" class="notice" hidden role="status"></div><div id="material-jobs"></div><div id="material-courses"></div>
+<details class="fold" id="labs-panel"><summary><strong>CS109 Lab 自动化</strong> <span class="muted" id="labs-summary" aria-live="polite">正在读取状态…</span></summary><div class="fold-body"><label><input type="checkbox" id="labs-auto">自动获取并接入 IDEA</label><p class="muted" id="labs-info" role="status" aria-live="polite">正在读取 Lab 状态…</p><div id="labs-jobs"></div></div></details></section>
 <section class="wide" id="venues-panel"><div class="heading"><h2>场地与预约</h2><button id="venues-refresh" class="secondary" type="button">刷新场地</button></div>
 <p class="muted">进入预约页可查看具体占用、先输入目标时段筛选空闲场地，以及查询和管理我的预约。</p><div id="venues-message"></div>
 <label>搜索场地<input id="venue-catalog-search" type="search" placeholder="名称、类型或位置"></label>
@@ -23,4 +24,4 @@
 <div class="split"><div><h3>图书馆场地</h3><div id="library-venues" class="venue-catalog"></div></div><div><h3>E-Hall 场地</h3><div id="ehall-venues" class="venue-catalog"></div></div></div>
 <div class="split"><div><h3>我的图书馆预约</h3><div id="library-mine"></div></div><div><h3>我的 E-Hall 预约</h3><div id="ehall-mine"></div></div></div></section>
 {% endblock %}
-{% block scripts %}<link rel="stylesheet" href="{{ url_for('static',filename='homework.css') }}"><script src="{{ url_for('static',filename='coursework.js') }}"></script><script src="{{ url_for('static',filename='dashboard.js') }}"></script><script src="{{ url_for('static',filename='assignments.js') }}"></script><script src="{{ url_for('static',filename='materials.js') }}"></script><script src="{{ url_for('static',filename='homework.js') }}"></script>{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{{ url_for('static',filename='homework.css') }}"><script src="{{ url_for('static',filename='coursework.js') }}"></script><script src="{{ url_for('static',filename='dashboard.js') }}"></script><script src="{{ url_for('static',filename='assignments.js') }}"></script><script src="{{ url_for('static',filename='materials.js') }}"></script><script src="{{ url_for('static',filename='homework.js') }}"></script><script src="{{ url_for('static',filename='labs.js') }}"></script>{% endblock %}

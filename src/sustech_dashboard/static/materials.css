@@ -28,3 +28,4 @@
 .material-job progress {width:100%;height:8px;accent-color:var(--blue);margin-top:8px}
 .material-job button {font-size:12px;padding:4px 9px;margin-top:6px}
 @media(max-width:650px){.material-file {align-items:start;flex-direction:column;gap:8px}.material-file-actions {justify-content:start}.material-course summary strong{min-width:140px}.material-toolbar button{flex:1}}
+#labs-panel .row{flex-wrap:wrap}#labs-panel .row-main{flex:1 1 200px}#labs-panel button{white-space:nowrap;flex:none}#labs-panel p{overflow-wrap:anywhere}#labs-panel button:not(:disabled):hover{filter:brightness(.96)}#labs-panel button:not(:disabled):active{transform:translateY(1px)}
