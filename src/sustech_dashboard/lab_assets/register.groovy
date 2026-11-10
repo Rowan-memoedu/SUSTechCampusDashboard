@@ -12,11 +12,14 @@ import com.intellij.ide.projectView.ProjectView
 import com.google.gson.Gson
 import java.nio.file.*
 def gson=new Gson(), input=gson.fromJson(Files.readString(Path.of('__INPUT_JSON__')),Map)
-def receipt=[attempt:input.attempt]
+def receipt=[attempt:input.attempt,passed:false,phase:'waiting_for_project']
+def report={String phase->receipt.phase=phase;Files.writeString(Path.of(input.receipt),gson.toJson(receipt))}
+report('waiting_for_project')
 try{
  def p=ProjectManager.instance.openProjects.find{Path.of(it.basePath).toAbsolutePath().normalize()==Path.of(input.project).toAbsolutePath().normalize()}
  assert p!=null:'学习工程尚未打开'
  def loader=PluginManagerCore.getPlugin(PluginId.getId('com.jetbrains.edu')).pluginClassLoader
+ report('waiting_for_write_safe_context')
  ApplicationManager.application.invokeAndWait({
   def course=p.getService(loader.loadClass('com.jetbrains.edu.learning.StudyTaskManager')).course
   def store=loader.loadClass('com.jetbrains.edu.learning.storage.SQLiteLearningObjectsStorage').getField('Companion').get(null).openOrCreateDB(p)
@@ -36,16 +39,19 @@ try{
     task.descriptionText=Files.readString(Path.of(p.basePath,u.path,'task.md'))
     lesson.addTask(task);task.init(lesson,false)
    }
-   LocalFileSystem.instance.refreshAndFindFileByPath(p.basePath+'/'+parts[0]+'/'+parts[1]).refresh(false,true)
+   def folder=LocalFileSystem.instance.refreshAndFindFileByPath(p.basePath+'/'+parts[0]+'/'+parts[1]);assert folder!=null
+   folder.refresh(true,true)
   }}finally{store.dispose()}
   ProjectView.getInstance(p).refresh()
   if(input.units.any{u->!u.files.isEmpty()&&ModuleManager.getInstance(p).modules.count{it.name.contains(u.module)}<3}){
    def gradle=PluginManagerCore.getPlugin(PluginId.getId('org.jetbrains.plugins.gradle')).pluginClassLoader
    ExternalSystemUtil.refreshProject(p,gradle.loadClass('org.jetbrains.plugins.gradle.util.GradleConstants').getField('SYSTEM_ID').get(null),p.basePath,false,ProgressExecutionMode.IN_BACKGROUND_ASYNC)
   }
- } as Runnable,ModalityState.any())
+ } as Runnable,ModalityState.nonModal())
+ report('waiting_for_modules')
  def until=System.currentTimeMillis()+90000
  while(input.units.any{u->!u.files.isEmpty()&&ModuleManager.getInstance(p).modules.count{it.name.contains(u.module)}<3}&&System.currentTimeMillis()<until)Thread.sleep(300)
+ report('verifying_course_and_check')
  ApplicationManager.application.invokeAndWait({
   def course=p.getService(loader.loadClass('com.jetbrains.edu.learning.StudyTaskManager')).course
   input.units.each{u->
@@ -63,7 +69,7 @@ try{
     assert bridge.loadClass('edu.graspmemo.academy.HydroChecker').getConstructor().newInstance().canCheck(p,task)
    }
   }
-  receipt.passed=true
- } as Runnable,ModalityState.any())
+  receipt.passed=true;receipt.phase='complete'
+ } as Runnable,ModalityState.nonModal())
 }catch(Throwable e){receipt.error=e.toString()}
 Files.writeString(Path.of(input.receipt),gson.toJson(receipt))
