@@ -141,13 +141,14 @@ class HomeworkStore:
         return self.get(jid)
 
     def claim(self):
+        adapter = self.unblock_configured()
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             # Oldest-ready first, not oldest-created: a repeatedly failing job
             # cannot monopolize the worker. Delayed retries survive restarts.
             row = next((r for r in db.execute(
                 "SELECT * FROM jobs WHERE state IN ('queued','retry_wait') ORDER BY updated,created")
-                if json.loads(r['data']).get('recovery', {}).get('unblock', {}).get('state') not in {'requested', 'active'}
+                if not self.unblock_held(json.loads(r['data']), adapter)
                 and (r['state'] == 'queued' or
                 json.loads(r['data']).get('recovery', {}).get('next_retry_at', '') <= now())), None)
             if row is None:
@@ -156,13 +157,39 @@ class HomeworkStore:
         return self.get(row['id'])
 
     def recover(self):
+        adapter = self.unblock_configured()
         with self.db() as db:
             db.execute("UPDATE jobs SET state='queued',error='',updated=? WHERE state='running'", (now(),))
+            if not adapter:
+                # A short-lived older build requested repairs unconditionally.
+                # Unconfigured machines keep their original retry policy. Never
+                # release a repair already owned by a real execution thread.
+                for row in db.execute("SELECT id,data FROM jobs WHERE state='retry_wait'").fetchall():
+                    data = json.loads(row['data'])
+                    unblock = data.get('recovery', {}).get('unblock', {})
+                    if unblock.get('state') == 'requested' and not unblock.get('owner'):
+                        data['recovery']['unblock'] = {**unblock, 'state': 'unavailable', 'reason': 'no configured adapter'}
+                        db.execute('UPDATE jobs SET data=?,revision=revision+1 WHERE id=?',
+                            (json.dumps(data, ensure_ascii=False), row['id']))
+
+    def unblock_configured(self):
+        config = self.setting('unblock_adapter', {})
+        return (isinstance(config, dict) and config.get('enabled') is True
+                and config.get('provider') == 'decision-workbench')
+
+    @staticmethod
+    def unblock_held(data, adapter):
+        hold = data.get('recovery', {}).get('unblock', {})
+        return hold.get('state') == 'active' or (hold.get('state') == 'requested' and (adapter or bool(hold.get('owner'))))
 
     def schedule_recovery(self, jid, error, kind, phase, *, legacy=False):
         job = self.get(jid)
         data = job['data']
         if kind == 'blocked':
+            if data.get('recovery'):
+                data['recovery'].update(kind='blocked', phase=phase)
+                if data['recovery'].get('unblock'):
+                    data['recovery']['unblock'] = {**data['recovery']['unblock'], 'state': 'blocked'}
             return self.update(jid, state='needs_attention', error=error, data=data)
         if kind == 'regenerate' and job['stage'] == 'extract':
             phase = 'extract'
@@ -176,8 +203,9 @@ class HomeworkStore:
         if old.get('unblock'):
             data['unblock_history'] = (data.get('unblock_history', []) + [old['unblock']])[-20:]
         data['recovery'] = {'attempts': old.get('attempts', 0) + 1, 'streak': streak,
-            'phase': phase, 'kind': kind, 'next_retry_at': next_retry, 'history': history[-20:],
-            'unblock': {'state': 'requested', 'at': now(), 'phase': phase}}
+            'phase': phase, 'kind': kind, 'next_retry_at': next_retry, 'history': history[-20:]}
+        if self.unblock_configured():
+            data['recovery']['unblock'] = {'state': 'requested', 'at': now(), 'phase': phase}
         if kind == 'regenerate':
             data.setdefault('feedback', []).append({'stage': phase, 'text': error, 'at': now()})
             if phase == 'extract':

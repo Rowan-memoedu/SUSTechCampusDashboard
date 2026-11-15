@@ -44,8 +44,11 @@ def test_failed_first_sync_cannot_create_baseline(tmp_path):
     assert not store.setting('enabled')
 
 
-def test_automatic_retry_survives_restart_and_does_not_block_another_job(tmp_path):
+@pytest.mark.parametrize('configured', [False, True])
+def test_automatic_retry_survives_restart_and_does_not_block_another_job(tmp_path, configured):
     store = HomeworkStore(tmp_path)
+    if configured:
+        store.set_setting('unblock_adapter', {'enabled': True, 'provider': 'decision-workbench'})
     bad = store.enqueue(assignment('bad'), explicit=True)
     failed = store.schedule_recovery(bad['id'], 'temporary failure', 'retry', 'discover')
     good = store.enqueue(assignment('good'), explicit=True)
@@ -57,6 +60,9 @@ def test_automatic_retry_survives_restart_and_does_not_block_another_job(tmp_pat
     assert again['data']['recovery'] == failed['data']['recovery']
     again['data']['recovery']['next_retry_at'] = '2000-01-01T00:00:00+00:00'
     restarted.update(bad['id'], data=again['data'])
+    if not configured:
+        assert restarted.claim()['id'] == bad['id']
+        return
     assert restarted.claim() is None  # First fault waits for its repair, even when overdue.
     again = restarted.get(bad['id'])
     held = restarted.unblock(bad['id'], again['revision'], 'fixture-owner')
@@ -87,6 +93,7 @@ def test_repeated_errors_cool_down_automatically_without_becoming_human_work(tmp
 def test_unblock_ownership_receipt_and_confirmation_boundaries(tmp_path):
     import hashlib
     store = HomeworkStore(tmp_path)
+    store.set_setting('unblock_adapter', {'enabled': True, 'provider': 'decision-workbench'})
     job = store.enqueue(assignment(), explicit=True)
     job = store.update(job['id'], stage='produce', data=job['data'] | {
         'attempt': 2, 'source_approved': 'frozen', 'pipeline': {'english': True, 'translation': True}})
@@ -110,6 +117,39 @@ def test_unblock_ownership_receipt_and_confirmation_boundaries(tmp_path):
     assert resumed['data']['pipeline'] == job['data']['pipeline']
     assert not resumed['data']['artifacts'] and not store.course('c')['trusted']
     assert store.claim()['id'] == job['id']
+
+
+@pytest.mark.parametrize('config', [{}, {'enabled': False, 'provider': 'decision-workbench'},
+                                    {'enabled': True, 'provider': 'unknown'}])
+def test_unconfigured_adapter_keeps_retry_and_migrates_only_unowned_requests(tmp_path, config):
+    store = HomeworkStore(tmp_path)
+    store.set_setting('unblock_adapter', config)
+    job = store.enqueue(assignment(), explicit=True)
+    job = store.schedule_recovery(job['id'], 'transient fault', 'retry', 'discover')
+    assert 'unblock' not in job['data']['recovery']
+    data = job['data']
+    data['recovery'].update(next_retry_at='2000-01-01T00:00:00+00:00', unblock={'state': 'requested'})
+    store.update(job['id'], data=data)
+    store.recover()
+    job = store.get(job['id'])
+    assert job['data']['recovery']['unblock']['state'] == 'unavailable'
+    assert store.claim()['id'] == job['id']
+    data['recovery']['unblock'] = {'state': 'active', 'owner': 'existing-thread'}
+    store.update(job['id'], state='retry_wait', data=data)
+    store.recover()
+    assert store.get(job['id'])['data']['recovery']['unblock']['owner'] == 'existing-thread'
+    assert store.claim() is None
+
+
+@pytest.mark.parametrize('prior_recovery', [False, True])
+def test_real_source_attention_cannot_be_resumed_by_workflow_receipt(tmp_path, prior_recovery):
+    store = HomeworkStore(tmp_path)
+    job = store.enqueue(assignment(), explicit=True)
+    if prior_recovery:
+        job = store.schedule_recovery(job['id'], 'temporary fault', 'retry', 'extract')
+    job = store.schedule_recovery(job['id'], 'source changed', 'blocked', 'extract')
+    with pytest.raises(ValueError, match='人工核对'):
+        store.unblock(job['id'], job['revision'], 'repair-thread')
 
 
 def test_answer_image_layout_does_not_inherit_question_thumbnail_limits(tmp_path, monkeypatch):
@@ -138,8 +178,11 @@ def test_answer_image_layout_does_not_inherit_question_thumbnail_limits(tmp_path
         renderer.build(hw | {'solution_image_height_cm': 30}, ['solutions'])
 
 
-def test_legacy_failures_resume_with_retained_reason_and_completed_jobs_untouched(tmp_path, monkeypatch):
+@pytest.mark.parametrize('configured', [False, True])
+def test_legacy_failures_resume_with_retained_reason_and_completed_jobs_untouched(tmp_path, monkeypatch, configured):
     runner = engine(tmp_path)
+    if configured:
+        runner.store.set_setting('unblock_adapter', {'enabled': True, 'provider': 'decision-workbench'})
     done = runner.store.enqueue(assignment('done'), explicit=True)
     done = runner.store.update(done['id'], state='complete', stage='done')
     job = runner.store.enqueue(assignment('old'), explicit=True)
@@ -155,16 +198,17 @@ def test_legacy_failures_resume_with_retained_reason_and_completed_jobs_untouche
         observed.append(current)
         runner.store.update(current['id'], state='complete', stage='done')
     monkeypatch.setattr(runner, 'produce', produce)
-    assert not runner.step()
-    held = runner.store.get(job['id'])
-    assert held['data']['recovery']['unblock']['state'] == 'requested'
-    # The isolated migration fixture supplies an actual receipt before resuming.
-    import hashlib
-    evidence = tmp_path / 'legacy-validation.json'
-    evidence.write_text('{"fixture_validation":true}')
-    held = runner.store.unblock(job['id'], held['revision'], 'fixture-owner')
-    runner.store.unblock(job['id'], held['revision'], 'fixture-owner', receipt={
-        'path': str(evidence), 'sha256': hashlib.sha256(evidence.read_bytes()).hexdigest()})
+    if configured:
+        assert not runner.step()
+        held = runner.store.get(job['id'])
+        assert held['data']['recovery']['unblock']['state'] == 'requested'
+        # The isolated migration fixture supplies an actual receipt before resuming.
+        import hashlib
+        evidence = tmp_path / 'legacy-validation.json'
+        evidence.write_text('{"fixture_validation":true}')
+        held = runner.store.unblock(job['id'], held['revision'], 'fixture-owner')
+        runner.store.unblock(job['id'], held['revision'], 'fixture-owner', receipt={
+            'path': str(evidence), 'sha256': hashlib.sha256(evidence.read_bytes()).hexdigest()})
     assert runner.step()
     assert 'independent proof' in observed[0]['data']['feedback'][-1]['text']
     assert observed[0]['data']['retry_production']

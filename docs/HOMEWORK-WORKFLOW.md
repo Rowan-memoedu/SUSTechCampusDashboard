@@ -29,6 +29,8 @@
 
 首次流程故障或审核退回即交给既有决策工作台自动疏通，不等待重复失败。账本仍使用 `state=retry_wait`、原 `stage` 与 `data.attempt`；`data.recovery.unblock.state=requested` 表示等待疏通，`active` 表示已接管，二者均禁止 worker claim，即使重试时间已到或后台重启也不重复制作。原 `error`、`recovery.kind/phase/history` 和全部检查点保留，受保护的真实来源歧义仍为 `needs_attention`。工作台 watcher 沿用 job ID + attempt 去重及原生 Thread，本项目不建立新的调度器。
 
+此自动等待只在私密账本 `settings.unblock_adapter={"enabled":true,"provider":"decision-workbench"}` 已显式配置的实例启用；当前机器的既有 Bridge 已接入，配置仅写本机，不随软件分发。未配置或未知 provider 的实例保留原有自动重试，不声称自动疏通可用。升级时，无适配器、无 owner 的旧 `requested` 自动恢复原重试；已由 Thread 接管的 `active` 始终保留隔离，须由归属方恢复。
+
 疏通执行者通过 `HomeworkStore.unblock(jid, revision, owner)` 绑定现有 Thread；状态/修订号或归属不符时拒绝接管。写作业前须正常停止后台并取得 `homework/worker.lock`，不能与原 worker 并行。通用流程的隔离 fixture、失败回归和独立 Canary 通过后，以同一方法传入 `receipt={path, sha256, ...}` 记录真实验证文件及哈希，归属一致且文件哈希通过后设置 `unblock.state=resumed`、`state=queued`，再由正式版本执行原失败及依赖阶段。此回执只恢复生产，不授予源题确认、PDF 确认或任何审核 PASS。再次失败仍等待同一 job/attempt 的疏通。
 
 答案图默认以整行宽度、最大22 cm高度等比排版，允许自然换页；题目册原图仍沿用其既有布局。排版恢复可调整 `solution_image_height_cm`（5.2–22），与行距、段距和题目分页一起由只读诊断选择；不得改动已审核的原图、正文或解答来挤入一页。
