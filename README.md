@@ -4,7 +4,7 @@
 
 安装与运行见 [客户端说明](CLIENT-README.md)，更新、签名与维护流程见 [UPDATING.md](UPDATING.md)。源码公开，可 fork 后自行部署；凭据、校园数据、运行数据库和下载文件均不在仓库中。
 
-**0.5.36 Windows 已正式发布并与本机同步。**新增 CS109 Lab 自动获取、中文题面转换、本地检查和 IDEA 接入，Lab 分支只提取 PDF 文字；Week 9 已通过真实流程，现有答案保留。当前 Windows 构建、公开升级及本机实测见[0.5.36 验收记录](docs/RELEASE-0.5.36-ACCEPTANCE.md)，此前作业制册恢复见[0.5.33 记录](docs/RELEASE-0.5.33-ACCEPTANCE.md)。[公共入口](https://124.221.144.155/app/) 提供静态发布与帮助，历史迁移见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。当前 Linux 分发目标保留为 0.5.9。
+**0.5.39 Windows 已正式发布并与本机同步。**作业答案图可按可用版面放大并自然分页；已接入决策工作台的实例在首次流程故障后暂停重复制作并进入自动疏通。当前 Windows 构建、公开升级及本机实测见[0.5.39 验收记录](docs/RELEASE-0.5.39-ACCEPTANCE.md)。CS109 Lab 自动化与 IDEA 接入沿用[0.5.36 已验证机制](docs/RELEASE-0.5.36-ACCEPTANCE.md)，此前作业制册恢复见[0.5.33 记录](docs/RELEASE-0.5.33-ACCEPTANCE.md)。[公共入口](https://124.221.144.155/app/) 提供静态发布与帮助，历史迁移见[阶段验收记录](docs/LOCAL-MODE-ACCEPTANCE.md)。当前 Linux 分发目标保留为 0.5.9。
 
 完整范围、迁移和服务器资源清理见 [第二阶段总计划](docs/WEB-HOSTED-PLAN.md)，新 Thread 从 [执行交接](docs/LOCAL-MODE-HANDOFF.md) 开始。取消集中托管后保留本地缓存和文件复用，跨用户共享服务退役，见 [复用与下载规则](docs/SHARED-METADATA-AND-DOWNLOADS.md)。
 
@@ -27,7 +27,7 @@
 
 已提交作业不会覆盖；官方已有草稿附件时保留草稿，提示到原页面继续。测验和小组作业显示可读信息并链接官方页面，不使用个人作业上传入口代替答题或小组提交。页面本身不判断文件是否符合教师要求。
 
-本机“自动制册”可从课程资料和公告定位教材，提取题目并生成题目册、作答册和答案册。每门课程首次分别确认教材题号和三册 PDF，之后处理后续新作业；不会自动提交。运行条件与边界见[作业工作流](docs/HOMEWORK-WORKFLOW.md)，首次接入见[作业验收记录](docs/HOMEWORK-ACCEPTANCE-20261012.md)，当前阶段与任务恢复见[0.5.16 验收](docs/RELEASE-0.5.16-ACCEPTANCE.md)。
+本机“自动制册”可从课程资料和公告定位教材，提取题目并生成题目册、作答册和答案册。每门课程首次分别确认教材题号和三册 PDF，之后处理后续新作业；不会自动提交。运行条件与边界见[作业工作流](docs/HOMEWORK-WORKFLOW.md)，首次接入见[作业验收记录](docs/HOMEWORK-ACCEPTANCE-20261012.md)，当前阶段与任务恢复见[0.5.39 验收](docs/RELEASE-0.5.39-ACCEPTANCE.md)。
 
 ## 场地与预约
 
