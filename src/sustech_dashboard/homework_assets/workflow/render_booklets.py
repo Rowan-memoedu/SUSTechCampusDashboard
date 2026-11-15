@@ -27,6 +27,10 @@ PREAMBLE=r'''% !TEX program = tectonic
 \typeout{DISPLAY-FIT: \the\wd0\space into \the\linewidth}
 \resizebox{\linewidth}{!}{\usebox0}\else\usebox0\fi}
 \endgroup\par\vspace{2pt}}
+\newcommand{\keepdiagram}[1]{\par\begingroup
+\setbox2=\vbox{\hsize=\linewidth #1\par}
+\ifdim\dimexpr\ht2+\dp2\relax>\textheight
+\unvbox2\else\box2\fi\endgroup\par}
 \begin{document}
 '''
 
@@ -57,22 +61,31 @@ def solution_sections(root,questions):
     assert hashlib.sha256(target.read_bytes()).hexdigest()==receipt['translation_sha256']
     return sections
 
-def convert(body,root):
+def convert(body,root,*,image_height_cm=5.2,image_width=0.8):
     # Accept both standard TeX and Markdown math delimiters before escaping prose.
     body=re.sub(r'\\\[([\s\S]*?)\\\]',lambda m:'$$'+m.group(1)+'$$',body)
     body=re.sub(r'\\\(([\s\S]*?)\\\)',lambda m:'$'+m.group(1)+'$',body)
     table=r'^\|[^\n]+\|[ \t]*\n\|(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*(?:\n\|[^\n]+\|[ \t]*)+'
-    pattern='('+table+r'|!\[[^\]]*\]\([^)]*\)|\$\$[\s\S]*?\$\$|\$[^$]+\$|\*\*|^#### [^\n]+$|^---\s*$)'
+    # Keep a short lead-in paragraph (and its optional heading) with a large
+    # diagram. The measured block is atomic only when it fits a whole page;
+    # longer prose can still split rather than making an over-height box.
+    image_intro=r'(?:^#### [^\n]+\n+)?(?:(?!^#### |^!\[|^\$\$)[^\n]+\n)+\n*!\[[^\]]*\]\([^\n)]*\)'
+    pattern='('+(image_intro+'|' if image_height_cm>5.2 else '')+table+r'|!\[[^\]]*\]\([^)]*\)|\$\$[\s\S]*?\$\$|\$[^$]+\$|\*\*|^#### [^\n]+$|^---\s*$)'
     parts=re.split(pattern,body,flags=re.M)
     out=[];bold=False
     for part in parts:
-        if re.fullmatch(table,part,flags=re.M):
+        if image_height_cm>5.2 and re.fullmatch(image_intro,part,flags=re.M):
+            image_start=part.rfind('![')
+            options={'image_height_cm':image_height_cm,'image_width':image_width}
+            out.append('\n'+r'\keepdiagram{'+'\n'+convert(part[:image_start],root,**options)+
+                       convert(part[image_start:],root,**options)+'\n}\n')
+        elif re.fullmatch(table,part,flags=re.M):
             rows=[re.split(r'(?<!\\)\|',line.strip()[1:-1]) for line in part.splitlines()]
             count=len(rows[0])
             assert all(len(row)==count for row in rows),'Inconsistent table column count'
             content=[r'\begin{center}\small\begin{tabularx}{\linewidth}{@{}*{'+str(count)+r'}{>{\centering\arraybackslash}X}@{}}\hline']
             for index,row in enumerate([rows[0]]+rows[2:]):
-                content.append(' & '.join(convert(cell.strip(),root) for cell in row)+r' \\')
+                content.append(' & '.join(convert(cell.strip(),root,image_height_cm=image_height_cm,image_width=image_width) for cell in row)+r' \\')
                 if index==0:content.append(r'\hline')
             content.append(r'\hline\end{tabularx}\end{center}')
             out.append('\n'.join(content))
@@ -81,7 +94,7 @@ def convert(body,root):
         elif part.startswith('!['):
             name=re.search(r'\]\((.*?)\)',part).group(1)
             path=(root/name).resolve();assert path.is_file()
-            out.append(r'\begin{center}\includegraphics[width=0.8\linewidth,height=5.2cm,keepaspectratio]{'+path.as_posix()+r'}\end{center}')
+            out.append(r'\begin{center}\includegraphics[width='+str(image_width)+r'\linewidth,height='+str(image_height_cm)+r'cm,keepaspectratio]{'+path.as_posix()+r'}\end{center}')
         elif part.startswith('$$'):
             math=part[2:-2].strip()
             math=re.sub(r'\\tag\{(.*?)\}',lambda m:r'\qquad\text{('+m.group(1)+')}',math)
@@ -160,7 +173,15 @@ def build(hw,modules):
                 parts.append(r'{\Large\color{Ink}'+esc(title)+r'}\par\vspace{3mm}'+'\n')
             if module=='questions' and questions_per_page==2:parts.append(r'\begin{minipage}[t][0.445\textheight][t]{\textwidth}'+'\n')
             parts.append(r'{\large\bfseries\color{Ink}Problem '+id+r'}\par\vspace{1mm}'+'\n')
-            parts.append(convert(sections[id],root)+'\n')
+            if module=='solutions':
+                # Answer diagrams can contain dense labels or several panels.
+                # A full-width, page-height-bounded block can move to the next
+                # page instead of shrinking to the question booklet's thumbnail.
+                height=float(hw.get('solution_image_height_cm',22))
+                assert 5.2<=height<=22
+                parts.append(convert(sections[id],root,image_height_cm=height,image_width=1.0)+'\n')
+            else:
+                parts.append(convert(sections[id],root)+'\n')
             if module=='questions' and questions_per_page==2:
                 parts.append(r'\end{minipage}'+'\n')
                 if i%2==0:parts.append(r'\par\vspace{3mm}{\color{Rule}\hrule}\vspace{4mm}'+'\n')

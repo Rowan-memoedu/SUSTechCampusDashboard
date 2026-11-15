@@ -147,8 +147,9 @@ class HomeworkStore:
             # cannot monopolize the worker. Delayed retries survive restarts.
             row = next((r for r in db.execute(
                 "SELECT * FROM jobs WHERE state IN ('queued','retry_wait') ORDER BY updated,created")
-                if r['state'] == 'queued' or
-                json.loads(r['data']).get('recovery', {}).get('next_retry_at', '') <= now()), None)
+                if json.loads(r['data']).get('recovery', {}).get('unblock', {}).get('state') not in {'requested', 'active'}
+                and (r['state'] == 'queued' or
+                json.loads(r['data']).get('recovery', {}).get('next_retry_at', '') <= now())), None)
             if row is None:
                 return None
             db.execute("UPDATE jobs SET state='running',revision=revision+1,updated=? WHERE id=?", (now(), row['id']))
@@ -172,8 +173,11 @@ class HomeworkStore:
             delay = max(0, delay - elapsed_since(job['updated']))
         next_retry = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
         history = old.get('history', []) + [{'at': now(), 'phase': phase, 'kind': kind, 'error': error}]
+        if old.get('unblock'):
+            data['unblock_history'] = (data.get('unblock_history', []) + [old['unblock']])[-20:]
         data['recovery'] = {'attempts': old.get('attempts', 0) + 1, 'streak': streak,
-            'phase': phase, 'kind': kind, 'next_retry_at': next_retry, 'history': history[-20:]}
+            'phase': phase, 'kind': kind, 'next_retry_at': next_retry, 'history': history[-20:],
+            'unblock': {'state': 'requested', 'at': now(), 'phase': phase}}
         if kind == 'regenerate':
             data.setdefault('feedback', []).append({'stage': phase, 'text': error, 'at': now()})
             if phase == 'extract':
@@ -188,6 +192,41 @@ class HomeworkStore:
             stage = job['stage']
         return self.update(jid, state='retry_wait', stage=stage, data=data, error=error)
 
+    def unblock(self, jid, revision, owner, *, receipt=None):
+        """Bind or resume one repair; no review/confirmation checkpoint is granted.
+
+        The caller must drain the worker before production or tool migration.
+        A receipt names the actual validated workflow revision and local evidence.
+        """
+        if not owner or not isinstance(owner, str):
+            raise ValueError('疏通归属不能为空')
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            job = self.decode(db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone())
+            if job['revision'] != revision or job['state'] not in {'retry_wait', 'failed', 'needs_attention'}:
+                raise ValueError('处理状态已变化，请刷新后核对')
+            data = job['data']
+            recovery = data.setdefault('recovery', {})
+            if recovery.get('kind') not in {'retry', 'regenerate'}:
+                raise ValueError('此状态需要原有人工核对，不能通过流程疏通恢复')
+            old = recovery.get('unblock', {})
+            if old.get('owner') and old['owner'] != owner:
+                raise ValueError('作业已有其他疏通归属')
+            if receipt is None:
+                recovery['unblock'] = {'state': 'active', 'owner': owner, 'at': now()}
+                state = 'retry_wait'
+            else:
+                if old.get('state') != 'active' or old.get('owner') != owner:
+                    raise ValueError('须先接管本轮疏通')
+                evidence = Path(receipt['path'])
+                if not evidence.is_file() or hashlib.sha256(evidence.read_bytes()).hexdigest() != receipt['sha256']:
+                    raise ValueError('疏通验证回执不存在或已变化')
+                recovery['unblock'] = {**old, 'state': 'resumed', 'resumed_at': now(), 'receipt': receipt}
+                state = 'queued'
+            db.execute('UPDATE jobs SET state=?,data=?,revision=revision+1,updated=? WHERE id=?',
+                (state, json.dumps(data, ensure_ascii=False), now(), jid))
+        return self.get(jid)
+
     def decide(self, jid, revision, action, feedback='', homework_copies=False):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -195,6 +234,8 @@ class HomeworkStore:
             if revision != job['revision']:
                 raise ValueError('处理状态已变化，请刷新后核对')
             data = job['data']
+            if data.get('recovery', {}).get('unblock', {}).get('state') in {'requested', 'active'}:
+                raise ValueError('本作业正在自动疏通，已有检查点保留，请等待恢复')
             state, stage = job['state'], job['stage']
             if action == 'accept_source' and state == 'awaiting_source':
                 data['source_approved'] = data['source_digest']

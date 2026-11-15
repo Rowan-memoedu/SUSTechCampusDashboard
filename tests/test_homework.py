@@ -57,6 +57,14 @@ def test_automatic_retry_survives_restart_and_does_not_block_another_job(tmp_pat
     assert again['data']['recovery'] == failed['data']['recovery']
     again['data']['recovery']['next_retry_at'] = '2000-01-01T00:00:00+00:00'
     restarted.update(bad['id'], data=again['data'])
+    assert restarted.claim() is None  # First fault waits for its repair, even when overdue.
+    again = restarted.get(bad['id'])
+    held = restarted.unblock(bad['id'], again['revision'], 'fixture-owner')
+    import hashlib
+    evidence = tmp_path / 'validated-workflow.json'
+    evidence.write_text('{"fixture_validation":true}')
+    restarted.unblock(bad['id'], held['revision'], 'fixture-owner', receipt={
+        'path': str(evidence), 'sha256': hashlib.sha256(evidence.read_bytes()).hexdigest()})
     assert restarted.claim()['id'] == bad['id']
     assert restarted.claim() is None
 
@@ -76,6 +84,60 @@ def test_repeated_errors_cool_down_automatically_without_becoming_human_work(tmp
     assert job['data']['recovery']['attempts'] == 7
 
 
+def test_unblock_ownership_receipt_and_confirmation_boundaries(tmp_path):
+    import hashlib
+    store = HomeworkStore(tmp_path)
+    job = store.enqueue(assignment(), explicit=True)
+    job = store.update(job['id'], stage='produce', data=job['data'] | {
+        'attempt': 2, 'source_approved': 'frozen', 'pipeline': {'english': True, 'translation': True}})
+    job = store.schedule_recovery(job['id'], 'diagram too small', 'regenerate', 'layout')
+    assert job['data']['recovery']['unblock']['state'] == 'requested'
+    assert store.claim() is None
+    held = store.unblock(job['id'], job['revision'], 'repair-thread')
+    with pytest.raises(ValueError, match='归属'):
+        store.unblock(job['id'], held['revision'], 'other-thread')
+    with pytest.raises(ValueError, match='状态已变化'):
+        store.unblock(job['id'], job['revision'], 'repair-thread')
+    with pytest.raises(ValueError, match='自动疏通'):
+        store.decide(job['id'], held['revision'], 'retry')
+    evidence = tmp_path / 'regression.json'
+    evidence.write_text('isolated fixture validation')
+    with pytest.raises(ValueError, match='回执'):
+        store.unblock(job['id'], held['revision'], 'repair-thread', receipt={'path': str(evidence), 'sha256': 'wrong'})
+    resumed = store.unblock(job['id'], held['revision'], 'repair-thread', receipt={
+        'path': str(evidence), 'sha256': hashlib.sha256(evidence.read_bytes()).hexdigest()})
+    assert resumed['data']['attempt'] == 2 and resumed['data']['source_approved'] == 'frozen'
+    assert resumed['data']['pipeline'] == job['data']['pipeline']
+    assert not resumed['data']['artifacts'] and not store.course('c')['trusted']
+    assert store.claim()['id'] == job['id']
+
+
+def test_answer_image_layout_does_not_inherit_question_thumbnail_limits(tmp_path, monkeypatch):
+    import importlib.util
+    from sustech_dashboard.homework_engine import ASSETS
+    spec = importlib.util.spec_from_file_location('diagram_renderer', ASSETS / 'render_booklets.py')
+    renderer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(renderer)
+    work = tmp_path / 'work'
+    work.mkdir()
+    (work / 'diagram.png').write_bytes(b'image fixture; TeX generation only')
+    (work / '题目.md').write_text('### Problem 8.2\n\nQuestion. ![diagram](diagram.png)', encoding='utf-8')
+    monkeypatch.setattr(renderer, 'BASE', tmp_path)
+    monkeypatch.setattr(renderer, 'solution_sections', lambda root, q: {'8.2': '#### Solution\n![answer](diagram.png)'})
+    hw = {'directory': 'work', 'ids': ['8.2'], 'subject': 'Fixture', 'label': 'HW'}
+    renderer.build(hw, ['questions', 'solutions'])
+    questions = (work / 'build/questions.tex').read_text(encoding='utf-8')
+    solutions = (work / 'build/solutions.tex').read_text(encoding='utf-8')
+    assert 'width=0.8\\linewidth,height=5.2cm' in questions
+    assert 'width=1.0\\linewidth,height=22.0cm' in solutions
+    assert solutions.count('includegraphics') == 1 and 'minipage' not in solutions
+    grouped = renderer.convert('#### Graph\n\nA labeled diagram.\n\n![graph](diagram.png)', work,
+                               image_height_cm=22, image_width=1.0)
+    assert grouped.index('keepdiagram{') < grouped.index('Graph') < grouped.index('includegraphics')
+    with pytest.raises(AssertionError):
+        renderer.build(hw | {'solution_image_height_cm': 30}, ['solutions'])
+
+
 def test_legacy_failures_resume_with_retained_reason_and_completed_jobs_untouched(tmp_path, monkeypatch):
     runner = engine(tmp_path)
     done = runner.store.enqueue(assignment('done'), explicit=True)
@@ -93,6 +155,16 @@ def test_legacy_failures_resume_with_retained_reason_and_completed_jobs_untouche
         observed.append(current)
         runner.store.update(current['id'], state='complete', stage='done')
     monkeypatch.setattr(runner, 'produce', produce)
+    assert not runner.step()
+    held = runner.store.get(job['id'])
+    assert held['data']['recovery']['unblock']['state'] == 'requested'
+    # The isolated migration fixture supplies an actual receipt before resuming.
+    import hashlib
+    evidence = tmp_path / 'legacy-validation.json'
+    evidence.write_text('{"fixture_validation":true}')
+    held = runner.store.unblock(job['id'], held['revision'], 'fixture-owner')
+    runner.store.unblock(job['id'], held['revision'], 'fixture-owner', receipt={
+        'path': str(evidence), 'sha256': hashlib.sha256(evidence.read_bytes()).hexdigest()})
     assert runner.step()
     assert 'independent proof' in observed[0]['data']['feedback'][-1]['text']
     assert observed[0]['data']['retry_production']

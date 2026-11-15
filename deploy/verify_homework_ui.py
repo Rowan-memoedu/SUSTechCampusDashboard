@@ -129,6 +129,18 @@ def main():
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'), f'Recovery overflow {width}'
                 page.screenshot(path=str(args.output / f'recovery-{width}.png'), full_page=True)
             report['automatic_recovery_needs_no_click'] = True
+            job['recovery']['unblock'] = {'state': 'active'}
+            job['revision'] += 1
+            page.reload()
+            page.locator('.homework-panel>summary').click()
+            page.get_by_text('正在自动疏通流程', exact=False).wait_for()
+            assert '将在' not in page.locator('[data-recovery-state=retry_wait]').inner_text()
+            assert page.locator('[data-recovery-state=retry_wait]').get_by_role('button').count() == 0
+            for width in report['widths']:
+                page.set_viewport_size({'width': width, 'height': 900})
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                page.screenshot(path=str(args.output / f'unblock-{width}.png'), full_page=True)
+            report['unblock_pauses_duplicate_production'] = True
             assert not report['errors'], report['errors']
             report.update(no_implicit_approval=True, two_explicit_confirmations=True, correction_visible=True,
                           stale_confirmation_rejected=True, teacher_html_is_text=True)

@@ -36,7 +36,8 @@ PLAN = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']},
 RESULT = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING})
 LAYOUT = obj({'questions_per_page': {'type': 'integer', 'enum': [1, 2]},
               'solution_line_spread': {'type': 'number', 'minimum': 1.0, 'maximum': 1.3},
-              'solution_parskip_em': {'type': 'number', 'minimum': 0, 'maximum': 0.4}, 'notes': STRING})
+              'solution_parskip_em': {'type': 'number', 'minimum': 0, 'maximum': 0.4},
+              'solution_image_height_cm': {'type': 'number', 'minimum': 5.2, 'maximum': 22}, 'notes': STRING})
 FIGURES = obj({'status': {'type': 'string', 'enum': ['ready', 'needs_attention']}, 'notes': STRING,
     'figures': {'type': 'array', 'items': obj({'path': STRING, 'source_page': STRING,
         'box': {'type': 'array', 'items': {'type': 'integer'}, 'minItems': 4, 'maxItems': 4}, 'notes': STRING})}})
@@ -114,7 +115,8 @@ class HomeworkEngine:
         upgrades = {
             'render_booklets.py': {'0c701a3c78d7d6d7a7a149f062531422c1bcc4def9136a96e2dca12d66819f59',
                                   '60550b8d2571f0e5d4d959774778446e8ecb6ef9445b866e1f4579f858e630fa',
-                                  '519951df2c2ac338dbec0787aeaaf052a0b71fad125fb811019797f2da3de725'},
+                                  '519951df2c2ac338dbec0787aeaaf052a0b71fad125fb811019797f2da3de725',
+                                  '51c277a0addd6e9d4f8af0107a417557df1591c36840f1e2ebb5ff8a41db64e1'},
             'verify_booklets.py': {'35ca062faa53b433014b34e6564be1a6a3d94127b821234b8afbebf25c207ef7'},
             'finalize_booklets.py': {'fe26be824d1aa0eb443e4ec5ae7717fc1312d2e0630a5f0b128ccd494aab24fe'}}
         for name, known_hashes in upgrades.items():
@@ -408,6 +410,7 @@ findings 只列真实缺陷，无缺陷时必须为空；reviewed_pages 列出�
 返回已有渲染器支持的排版参数，不修改正文、图像、工具或审核文件，不删除内容来使版面通过。
 题目过满可将 questions_per_page 从 2 改成 1；答案孤立续页可在 1.0–1.3 内调整 solution_line_spread。
 solution_parskip_em 是段间距，默认 0.15，可在 0–0.4 内调整；行距已到 1.0 仍有少量孤立续文时，可减小段间距。
+答案图按整行宽度等比排版，solution_image_height_cm 是最大高度（5.2–22 cm，默认22）。图中标签过小时应允许足够高度和自然分页，不能沿用缩略图高度来挤进一页。此参数不改动图片本身。
 作答册仍固定每题两页。说明选择依据；程序应用参数后会重新编译，并由独立审核逐页验收。''', LAYOUT,
                     images=images, read_only=True)
                 if type(layout.get('questions_per_page')) is not int or layout['questions_per_page'] not in (1, 2) or not isinstance(layout.get('solution_line_spread'), (int, float)) or not 1 <= layout['solution_line_spread'] <= 1.3:
@@ -417,6 +420,10 @@ solution_parskip_em 是段间距，默认 0.15，可在 0–0.4 内调整；行�
                     raise StageFailure('排版恢复段间距超出既有渲染器范围', kind='retry')
                 data['layout'] = {key: layout[key] for key in ('questions_per_page', 'solution_line_spread')}
                 data['layout']['solution_parskip_em'] = spacing
+                height = layout.get('solution_image_height_cm', 22)
+                if type(height) not in (int, float) or not 5.2 <= height <= 22:
+                    raise StageFailure('排版恢复图片高度超出渲染器范围', kind='retry')
+                data['layout']['solution_image_height_cm'] = height
             if failed == 'visual':
                 # The user's book/question choice remains valid: only derived
                 # crops may change, with immutable originals/prose and separate review.
