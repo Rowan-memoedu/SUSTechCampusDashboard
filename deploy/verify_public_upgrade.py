@@ -1,6 +1,5 @@
 """Fetch the retained old public artifact and upgrade it through the original TUF root."""
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import zipfile
@@ -8,6 +7,7 @@ import zipfile
 import requests
 from sustech_dashboard.updates import platform_tag, RELEASE_URL, extract_release
 from verify_upgrade import verify
+from release import download
 
 
 def main():
@@ -23,9 +23,8 @@ def main():
     manifest=get('https://github.com/Rowan-memoedu/SUSTechCampusDashboard/releases/download/v'+a.version+'/release-manifest.json').json()
     assert manifest['source_commit']==a.commit
     asset=next(x for x in manifest['assets'] if x['filename']==platform+'.zip')
-    data=get(RELEASE_URL+'/targets/'+a.previous_sha256+'.'+platform+'.zip').content
-    assert hashlib.sha256(data).hexdigest()==a.previous_sha256
-    archive=a.cache/'previous.zip'; archive.write_bytes(data)
+    archive=a.cache/'previous.zip'
+    download(RELEASE_URL+'/targets/'+a.previous_sha256+'.'+platform+'.zip', archive, a.previous_sha256)
     with zipfile.ZipFile(archive) as z: release=json.loads(z.read('release.json'))
     bundle=a.cache/'previous'
     extract_release(archive,bundle,release)

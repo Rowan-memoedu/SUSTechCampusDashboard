@@ -60,6 +60,28 @@ def test_windows_public_upgrade_does_not_dispatch_linux(tmp_path,monkeypatch):
     assert calls[0][2]['platforms']=='windows' and 'previous_linux' not in calls[0][2]
 
 
+def test_public_upgrade_bootstrap_uses_hash_checked_resumable_downloader(tmp_path, monkeypatch):
+    import zipfile
+    from types import SimpleNamespace
+    import verify_public_upgrade as upgrade
+    m=manifest();calls=[]
+    monkeypatch.setattr(upgrade.requests,'Session',lambda:SimpleNamespace(get=lambda *a,**k:
+        SimpleNamespace(raise_for_status=lambda:None,json=lambda:m)))
+    monkeypatch.setattr(upgrade,'platform_tag',lambda:'windows-x86_64')
+    def download(url,path,expected):
+        assert expected=='c'*64 and url.endswith('/'+'c'*64+'.windows-x86_64.zip')
+        calls.append(('download',path))
+        with zipfile.ZipFile(path,'w') as z:z.writestr('release.json',json.dumps({'version':'1.2.2'}))
+    monkeypatch.setattr(upgrade,'download',download)
+    monkeypatch.setattr(upgrade,'extract_release',lambda *a:calls.append(('extract',a)))
+    monkeypatch.setattr(upgrade,'verify',lambda *a:calls.append(('verify',a)))
+    monkeypatch.setattr(sys,'argv',['verify_public_upgrade','--version','1.2.3','--commit','a'*40,
+        '--previous-sha256','c'*64,'--cache',str(tmp_path)])
+    upgrade.main()
+    assert [c[0] for c in calls]==['download','extract','verify']
+    assert calls[-1][1][-1]=='b'*64
+
+
 @pytest.mark.parametrize('alteration',['none','changed','removed','added'])
 def test_partial_publication_preserves_the_other_platform(alteration):
     from types import SimpleNamespace
