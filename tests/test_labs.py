@@ -1,5 +1,8 @@
 import json
+import hashlib
+import io
 import threading
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -250,3 +253,53 @@ def test_existing_sample_files_remain_registered_and_reset_template_is_not_answe
     assert registered['files']==['src/Main.java','src/Example1.java']
     assert registered['templates']['src/Main.java']=='class Main {}\n'
     assert 'userAnswer' not in json.dumps(registered['templates'])
+
+
+def test_teacher_archive_reads_source_without_extracting_or_running(tmp_path):
+    source = tmp_path / 'TeacherSource.zip'
+    with zipfile.ZipFile(source, 'w') as archive:
+        archive.writestr('demo/Widget.java', 'package demo;\nclass Widget {}\n')
+        archive.writestr('demo/Widget.class', b'not-a-source')
+    record = {'path': str(source), 'name': source.name, 'sha256': hashlib.sha256(source.read_bytes()).hexdigest()}
+    result = lab_sources.source_code(record)
+    assert [f['name'] for f in result['files']] == ['demo/Widget.java']
+    assert result['files'][0]['sha256'] == hashlib.sha256(b'package demo;\nclass Widget {}\n').hexdigest()
+    assert not (tmp_path / 'demo').exists()
+    with zipfile.ZipFile(source, 'w') as archive:
+        archive.writestr('../Escape.java', 'class Escape {}')
+    with pytest.raises(StageFailure, match='发生变化'):
+        lab_sources.source_code(record)
+    record['sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
+    with pytest.raises(StageFailure, match='路径'):
+        lab_sources.source_code(record)
+
+
+def test_embedded_image_uses_original_bytes_and_page_without_page_rendering(tmp_path):
+    from PIL import Image
+    raw = io.BytesIO()
+    Image.new('RGB', (2, 3), (100, 20, 30)).save(raw, format='PNG')
+    blob = raw.getvalue()
+    reader = SimpleNamespace(pages=[SimpleNamespace(images=[SimpleNamespace(data=blob, name='diagram.png')])])
+    rows = lab_sources.source_images(reader, tmp_path)
+    assert len(rows) == 1 and rows[0]['page'] == 1
+    assert Path(rows[0]['path']).read_bytes() == blob
+    assert rows[0]['sha256'] == hashlib.sha256(blob).hexdigest()
+    assert lab_sources.source_images(reader, tmp_path) == rows
+
+
+def test_pending_source_enrichment_keeps_identity_and_does_not_reopen_completed_week(tmp_path, monkeypatch):
+    e = engine(tmp_path, monkeypatch)
+    current = assignment() | {'bundle_sha': 'old'}
+    job = e.store.enqueue(current)
+    e.store.update(job['id'], state='needs_attention', stage='generate')
+    enriched = current | {'bundle_sha': 'new', 'supporting_sources': [{'name': 'Teacher.zip'}]}
+    monkeypatch.setattr(lab_sources, 'collect', lambda *a: [enriched])
+    seen = []
+    monkeypatch.setattr(e, 'discover', lambda j: seen.append(j['data']['assignment']['bundle_sha']))
+    assert e.step()
+    assert seen == ['new'] and len(e.store.list()) == 1
+    e.store.update(job['id'], state='complete', stage='done')
+    e.next_scan = 0
+    monkeypatch.setattr(lab_sources, 'collect', lambda *a: [enriched | {'bundle_sha': 'newer'}])
+    assert not e.step()
+    assert e.store.get(job['id'])['data']['assignment']['bundle_sha'] == 'new'
