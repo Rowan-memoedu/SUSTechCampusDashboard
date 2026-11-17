@@ -49,6 +49,8 @@ def supplement_resources(source, resources, references, staged=()):
         current = local_reference(path, record['title'])
         if current['sha256'] != record['sha256'] or current['key'] != record['key']:
             raise ValueError('本机补充教材已变化，需要重新核对来源')
+        # A ledger fallback changes the location, never the original identity/name.
+        current['name'] = record['name']
         resources[current['key']] = current
         source['resources'].append({k: current[k] for k in ('key', 'name', 'title', 'origin')})
     return source, resources
@@ -60,7 +62,10 @@ def stage_local_reference(resource, root):
         raise ValueError('本机补充教材已变化，未暂存')
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
-    path = root / (current['key'] + '-' + safe_name(Path(current['name']).stem)[:150] + '.pdf')
+    # Content-addressed names remain bounded across repeated ledger reuse. The
+    # human filename belongs in metadata, not in each new copy's basename.
+    current['name'] = resource['name']
+    path = root / (current['key'] + '.pdf')
     receipt = path.with_name(path.name + '.receipt.json')
     if path.exists():
         if not receipt.exists() or file_sha(path) != current['sha256']:

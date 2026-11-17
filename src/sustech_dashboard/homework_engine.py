@@ -171,22 +171,50 @@ API 后端可用 workspace_file 的 list/read/write/image/pdf_text/pdf_render；
     def discover(self, job):
         root = self.setup(job)
         data = job['data']
-        # Read-only calls use their own SDK session. A long material scan must
-        # not hold the lock used by interactive school writes/downloads.
-        source, resources = collect(self.bb_factory(), data['assignment'])
-        from .homework_sources import supplement_resources
-        source, resources = supplement_resources(source, resources,
-            self.store.setting('course_references:' + job['course_id'], []),
-            [record for previous in self.store.list() if previous['course_id'] == job['course_id']
-             for record in previous['data'].get('downloads', [])])
+        checkpoint = root / 'discovery-checkpoint.json'
+        result = None
+        if checkpoint.is_file():
+            frozen = json.loads(checkpoint.read_text(encoding='utf-8'))
+            payload = frozen['payload']
+            if digest(payload) != frozen['sha256']:
+                raise ValueError('发现阶段冻结输入发生变化，未继续制作')
+            source, resources = payload['source'], payload['resources']
+            result = payload.get('result')
+        else:
+            # Older versions saved the model result before source staging, but
+            # not the resource map. Recover only explicitly bound local books;
+            # remote URLs cannot be reconstructed from display metadata.
+            runs = sorted((root / 'agent-runs').glob('discover-*/result.json'))
+            if (root / 'input.json').is_file() and runs:
+                candidate = json.loads(runs[-1].read_text(encoding='utf-8'))
+                selected = candidate.get('resource_keys', [])
+                refs = self.store.setting('course_references:' + job['course_id'], [])
+                if selected and set(selected) <= {r['key'] for r in refs}:
+                    source = json.loads((root / 'input.json').read_text(encoding='utf-8'))
+                    if not set(selected) <= {r['key'] for r in source['resources']}:
+                        raise ValueError('旧发现结果与冻结资源索引不符')
+                    from .homework_sources import supplement_resources
+                    _, resources = supplement_resources({'resources': []}, {},
+                        [r for r in refs if r['key'] in selected],
+                        [record for previous in self.store.list() if previous['course_id'] == job['course_id']
+                         for record in previous['data'].get('downloads', [])])
+                    result = candidate
+            if result is None:
+                source, resources = self.collect_discovery(job)
+            payload = {'source': source, 'resources': resources, 'result': result}
+            save(checkpoint, {'payload': payload, 'sha256': digest(payload)})
         save(root / 'input.json', source)
-        save(root / 'course-recipe.json', self.store.course(job['course_id'])['recipe'])
-        result = self.ai(root, 'discover', '''读取 input.json 全部课程资源索引、作业正文和相关公告，并参考 course-recipe.json 的已有规则。
+        if not (root / 'course-recipe.json').exists():
+            save(root / 'course-recipe.json', self.store.course(job['course_id'])['recipe'])
+        if result is None:
+            result = self.ai(root, 'discover', '''读取 input.json 全部课程资源索引、作业正文和相关公告，并参考 course-recipe.json 的已有规则。
 找出教师本次实际布置的有序题号和最可能的参考书/作业原件，返回对应 resource_keys。
 排除往年试卷、参考答案、建议练习和无关讲义。不要仅凭名称或章节相同，把习题课讲义等同于教师布置的作业原件。
 课程正文若引用另一份选题表，需要选取该文件。包括公告附件中的教材，不能只看作业附件。
 无需在本阶段求解或生成 PDF。缺题号但可从所选附件恢复时，ids 可空，说明依据；否则写入 uncertainties。
 subject 使用课程本名，不带学期/教师后缀；英文课程保持英文。label 是本次作业名称。''', DISCOVERY)
+            payload = {'source': source, 'resources': resources, 'result': result}
+            save(checkpoint, {'payload': payload, 'sha256': digest(payload)})
         keys = result.get('resource_keys', [])
         if not keys or len(keys) > 8 or len(set(keys)) != len(keys) or not set(keys) <= set(resources):
             raise ValueError('未找到明确且可读取的教材／作业原件，需要核对课程来源')
@@ -198,6 +226,18 @@ subject 使用课程本名，不带学期/教师后缀；英文课程保持英�
         save(root / 'discovery.json', result)
         save(root / 'sources.json', files)
         self.store.update(job['id'], state='queued', stage='extract', data=data)
+
+    def collect_discovery(self, job):
+        data = job['data']
+        # Read-only calls use their own SDK session. A long material scan must
+        # not hold the lock used by interactive school writes/downloads.
+        source, resources = collect(self.bb_factory(), data['assignment'])
+        from .homework_sources import supplement_resources
+        source, resources = supplement_resources(source, resources,
+            self.store.setting('course_references:' + job['course_id'], []),
+            [record for previous in self.store.list() if previous['course_id'] == job['course_id']
+             for record in previous['data'].get('downloads', [])])
+        return source, resources
 
     def extract(self, job):
         root = self.setup(job)

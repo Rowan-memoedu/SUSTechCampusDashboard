@@ -1069,6 +1069,56 @@ def test_missing_local_textbook_reuses_identical_staged_ledger_copy(tmp_path):
         supplement_resources({'resources': []}, {}, [reference], [staged])
 
 
+def test_repeated_ledger_fallback_has_bounded_paths_and_preserves_original_name(tmp_path):
+    book = tmp_path / ('教材-' + 'x' * 70 + '.pdf')
+    book.write_bytes(b'%PDF-1.4\nrepeated fallback regression')
+    reference = local_reference(book, 'Fallback textbook')
+    staged = download(None, reference, tmp_path / 'first')
+    book.unlink()
+    for i in range(8):
+        _, resources = supplement_resources({'resources': []}, {}, [reference], [staged])
+        staged = download(None, resources[reference['key']], tmp_path / f'generation-{i}')
+        path = Path(staged['path'])
+        assert path.name == reference['key'] + '.pdf'
+        assert staged['name'] == reference['name']
+        assert path.with_name(path.name + '.receipt.json').is_file()
+        assert staged['sha256'] == reference['sha256']
+
+
+def test_legacy_discovery_download_failure_replays_frozen_input_without_scan(tmp_path, monkeypatch):
+    runner = engine(tmp_path / 'private')
+    book = tmp_path / 'book.pdf'
+    book.write_bytes(b'%PDF-1.4\nfrozen discovery regression')
+    reference = local_reference(book, 'Frozen textbook')
+    staged = download(None, reference, tmp_path / 'prior')
+    book.unlink()
+    runner.store.set_setting('course_references:c', [reference])
+    previous = runner.store.enqueue(assignment('previous'), explicit=True)
+    runner.store.update(previous['id'], data=previous['data'] | {'downloads': [staged]})
+    job = runner.store.enqueue(assignment('current'), explicit=True)
+    root = runner.setup(job)
+    source = {'requirement': 'Frozen teacher requirement', 'resources': [{'key': reference['key']} ]}
+    (root / 'input.json').write_text(json.dumps(source))
+    run = root / 'agent-runs/discover-123'
+    run.mkdir(parents=True)
+    result = {'resource_keys': [reference['key']], 'ids': ['7.3']}
+    (run / 'result.json').write_text(json.dumps(result))
+    monkeypatch.setattr(runner, 'collect_discovery', lambda *a: pytest.fail('must not rescan'))
+    monkeypatch.setattr(runner, 'ai', lambda *a: pytest.fail('must preserve successful discovery'))
+    runner.discover(job)
+    updated = runner.store.get(job['id'])
+    assert updated['stage'] == 'extract' and updated['data']['input'] == source
+    assert updated['data']['discovery'] == result
+    assert not updated['data'].get('source_approved')
+    assert (run / 'result.json').is_file()
+    runner.discover(updated)  # Native checkpoint replay is idempotent too.
+    frozen = json.loads((root / 'discovery-checkpoint.json').read_text())
+    frozen['payload']['source']['requirement'] = 'changed'
+    (root / 'discovery-checkpoint.json').write_text(json.dumps(frozen))
+    with pytest.raises(ValueError, match='冻结输入'):
+        runner.discover(runner.store.get(job['id']))
+
+
 def test_local_textbook_rejects_non_pdf_and_modified_staged_copy(tmp_path):
     book = tmp_path / 'original.pdf'
     book.write_text('not a PDF', encoding='utf-8')
