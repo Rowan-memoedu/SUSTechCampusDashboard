@@ -827,6 +827,39 @@ def test_translation_retry_starts_from_accepted_source_and_archives_failed_candi
         runner.produce(job)
 
 
+def test_source_input_review_failure_regenerates_all_answers_preserving_frozen_source(tmp_path, monkeypatch):
+    fixture_toolchain(tmp_path, monkeypatch)
+    runner = engine(tmp_path)
+    job = runner.store.enqueue(assignment(), explicit=True)
+    job = runner.store.update(job['id'], state='running', stage='produce', data=job['data'] | {
+        'source_approved': 'bound', 'plan': {'ids': ['4.8']},
+        'pipeline': {'english': True, 'calculation': True, 'translation': True, 'compiled': True}})
+    root = runner.setup(job)
+    frozen = '### Problem 4.8\n(a) Construct the requested object. (b) Prove completeness.'
+    (root / 'work/题目.md').write_text(frozen, encoding='utf-8')
+    (root / 'work/答案册-英文.md').write_text('failed wrong-input candidate', encoding='utf-8')
+    (root / 'work/答案册.md').write_text('dependent translation', encoding='utf-8')
+    (root / 'work/review/independent-review.json').write_text('{"status":"FAIL"}', encoding='utf-8')
+    failed = runner.store.schedule_recovery(job['id'], 'input mismatch and omitted subpart', 'regenerate', 'english')
+    assert failed['state'] == 'retry_wait'
+    monkeypatch.setattr(runner, 'source_digest', lambda *args: 'bound')
+    def observe(root, stage, instruction, *args, **kwargs):
+        assert stage == 'english'
+        assert 'Given' in instruction and 'Required' in instruction and 'solution-input-audit.json' in instruction
+        assert (root / 'work/题目.md').read_text(encoding='utf-8') == frozen
+        assert not (root / 'work/答案册-英文.md').exists()
+        assert not (root / 'work/答案册.md').exists()
+        prior = next((root / 'rejected').iterdir())
+        assert (prior / '答案册-英文.md').read_text(encoding='utf-8') == 'failed wrong-input candidate'
+        assert json.loads((prior / 'review/independent-review.json').read_text())['status'] == 'FAIL'
+        current = runner.store.get(job['id'])['data']
+        assert current['source_approved'] == 'bound' and not current['pipeline']
+        raise RuntimeError('observed regeneration boundary')
+    monkeypatch.setattr(runner, 'ai', observe)
+    with pytest.raises(RuntimeError, match='regeneration boundary'):
+        runner.produce(failed)
+
+
 @pytest.mark.parametrize('review_passes', [True, False])
 def test_formula_word_order_reaches_independent_review_without_bypassing_failure(tmp_path, monkeypatch, review_passes):
     import sustech_dashboard.homework_engine as module

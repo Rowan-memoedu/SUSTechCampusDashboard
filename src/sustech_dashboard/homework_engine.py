@@ -53,6 +53,14 @@ TRANSLATION_BOUNDARY = '''翻译验收以科学正确性和内容完整性为准
 只有改变题意、科学概念、数值、符号含义、单位、适用条件、量词、否定、逻辑方向、推导或结论，或遗漏必要内容，才应退回。必须指出实际语义错误及其影响；纯风格或字面差异不列入 findings。
 '''
 
+ENGLISH_INPUT_BOUNDARY = '''逐题先从冻结题面建立 Given / Required 清单，再求解，不凭记忆、旧计算脚本或相似题代入。
+Given 逐项记录本题实际数值、向量/矩阵及它们的对应关系、符号定义和条件；Required 单列每个分问，以及同一分问中的每个证明、构造、列举和穷尽性要求。
+计算脚本的输入必须逐项绑定 Given 的题面原文，运行时输出实际使用的输入；仅对自己构造的答案做内部一致性检查，不能证明使用了正确题目。
+每个 Required 都要有可定位的完整解答。显式要求列出对象时给出所求对象，要求独立性、唯一性或全部可能时分别证明，不能用一个总述替代具体分问。
+保存 work/solution-input-audit.json：记录冻结题面 SHA-256，并按原顺序逐题记录 id、Given 的题面引文及计算输入、每项 Required 的题面引文及对应解答位置。记录是可核对的证据，不写 PASS 或冒充独立审核。
+返回前重新逐题对照冻结题面、计算脚本实际输入与完整英文稿，核对全部 Given 对应及 Required 覆盖。审核反馈只说明旧稿缺陷，不是原题来源或新答案；全部内容仍从冻结题面独立推导。旧计算脚本及其记录不能原样复用，须从本轮 Given 重新建立并运行。
+'''
+
 
 def save(path, value):
     path = Path(path)
@@ -495,7 +503,7 @@ solution_parskip_em 是段间距，默认 0.15，可在 0–0.4 内调整；行�
 
         if not pipeline.get('english'):
             phase('english')
-            result = self.ai(root, 'english', '''读取 plan.json 与 work/题目.md，为全部分问生成完整、详细英文解答到 work/答案册-英文.md。
+            result = self.ai(root, 'english', ENGLISH_INPUT_BOUNDARY + '''读取 plan.json 与 work/题目.md，为全部分问生成完整、详细英文解答到 work/答案册-英文.md。
 每题以完全相同的 ### Problem ID 开头，先逐字保留完整英文题面，再用 #### Solution 开始解答。
 若发现疑似原书笔误、矛盾或无法成立的要求，重新核读原页并独立推导；保留原文，在解答中明确说明矛盾、证据、成立条件及有依据的解释，不静默改题。
 数学/物理上可验证的问题由后续独立审核裁决，不因发现笔误而要求人类确认；题面保真、论证和全部分问完成后返回 ready。只有缺少原件或确实需要用户选择时返回 needs_attention，并写明缺失信息。
@@ -521,6 +529,7 @@ solution_parskip_em 是段间距，默认 0.15，可在 0–0.4 内调整；行�
             review_images = list(dict.fromkeys(source_images + answer_images))
             result = self.review(root, 'independent-review', '''独立复核 work/答案册-英文.md，不接受生产者自报正确。
 实际查看 plan.json 的全部 source_pages 原页图，核对 work/题目.md 的每个数字、符号、分问与图。
+先独立从冻结题面列出逐题 Given 对应关系与全部 Required，再对照 work/solution-input-audit.json、脚本实际输入和正文逐项核对。若证据文件缺失、输入错配或任一分问没有完整回答，返回 FAIL；不能把生产者的覆盖清单或计算记录自洽当作完整性与输入正确的证明。
 核对所有明确作图要求是否有实际答案图；逐张查看英文稿引用的全部图片，检查坐标、方向、比例、标签、分解与映射关系。文字作图指令或教材原图不能代替本题所求答案图。
 逐题重新建模/计算/回代，检查中间式、参数条件、物理方向和量纲，证明另核逻辑前提。查看并核实已有计算记录，必要时独立重算。
 禁止修改候选题面或解答。发现任何问题返回 FAIL 与具体 findings，不能为了通过而放宽规则。
