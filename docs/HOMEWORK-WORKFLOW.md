@@ -56,7 +56,7 @@
 ## 本机运行条件与接入
 
 - 已登录的 `codex exec`、可用 Python（pypdf / pypdfium2 / Pillow）、Tectonic。沿用已有编译器，不附带大体积 TeX 安装。
-- 运行时配置仅优先使用仍存在的可执行文件。Tectonic 依次检查本机配置、`CODEX_TECTONIC_PATH`、PATH；均不可用时，在 Windows 查询当前用户已注册的 ChatGPT 桌面端中的 Codex 安装位置。桌面端升级移除旧目录后可发现新版本，不依赖后台进程继承新的环境变量。
+- 运行时配置仅优先使用仍存在的可执行文件。Tectonic 依次检查本机配置、`CODEX_TECTONIC_PATH`、PATH；均不可用时，在 Windows 查询当前用户已注册的 Codex 主运行时包，按版本从新到旧查找。旧版仍可使用随桌面应用安装的 Tectonic。桌面端升级移除旧目录后可发现新版本，不依赖后台进程继承新的环境变量。
 - Codex 使用 `--ignore-user-config --ephemeral --json --sandbox workspace-write` 与 JSON schema。显式启用 unified_exec；不复制 ChatGPT 桌面端模型别名到 CLI。未指定模型时使用 CLI 默认模型。
 - 只有暂存教师材料进入 AI 工作区；校园凭据保持在面板进程中。禁用该次 CLI 的子代理与无关技能目录注入。材料内容是数据，不是执行指令。
 - 私密账本 `settings.runner` 保存非敏感的运行时路径及后端选择。`backend=codex` 为默认。`backend=api` 可配置 `api.base_url`、`api.model`、`api.key_env`；密钥仅从本机环境变量或 Windows 用户环境变量读取，不保存在账本或 Git。API 工具只访问本次作业目录，来源和工具目录不可写。

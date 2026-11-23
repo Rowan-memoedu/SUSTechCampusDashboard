@@ -61,7 +61,35 @@ def test_registered_app_discovery_is_bounded_and_handles_missing_registration(tm
         if response == 'timeout':
             raise subprocess.TimeoutExpired(args, 20)
         return SimpleNamespace(returncode=1 if response == 'failure' else 0,
-            stdout='not JSON' if response == 'invalid' else json.dumps(str(tmp_path)))
+            stdout='not JSON' if response == 'invalid' else json.dumps({'runtime': [], 'desktop': [str(tmp_path)]}))
     monkeypatch.setattr(backend, 'subprocess', SimpleNamespace(run=run, CREATE_NO_WINDOW=123,
         TimeoutExpired=subprocess.TimeoutExpired))
     assert backend.installed_codex_tectonic() == (str(target) if response == 'valid' else None)
+
+
+def test_stale_paths_find_tectonic_in_registered_primary_runtime(tmp_path, monkeypatch):
+    current = tmp_path / 'newest-runtime'
+    older = tmp_path / 'older-runtime'
+    desktop = tmp_path / 'desktop'
+    path = 'dependencies/native/tectonic/tectonic.exe'
+    for target in (current / path, older / path, desktop / 'app/resources/tectonic/tectonic.exe'):
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b'executable fixture')
+    monkeypatch.setattr(backend, 'os', SimpleNamespace(name='nt', environ={
+        'CODEX_TECTONIC_PATH': str(tmp_path / 'expired-cache/tectonic.exe')}))
+    monkeypatch.setattr(backend.shutil, 'which', lambda _: None)
+
+    def run(args, **kwargs):
+        assert 'Get-AppxPackage -Name OpenAI.CodexPrimaryRuntime.*' in args[-1]
+        assert 'Sort-Object Version -Descending' in args[-1]
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            'runtime': [str(current), str(older)], 'desktop': [str(desktop)]}))
+
+    monkeypatch.setattr(backend, 'subprocess', SimpleNamespace(run=run, CREATE_NO_WINDOW=123,
+        TimeoutExpired=subprocess.TimeoutExpired))
+    settings = {'python': sys.executable, 'tectonic': str(tmp_path / 'removed-app/tectonic.exe')}
+    assert backend.toolchain(settings)['tectonic'] == str(current / path)
+    (current / path).unlink()
+    assert backend.toolchain(settings)['tectonic'] == str(older / path)
+    (older / path).unlink()
+    assert backend.toolchain(settings)['tectonic'] == str(desktop / 'app/resources/tectonic/tectonic.exe')

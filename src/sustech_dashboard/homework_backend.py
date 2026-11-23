@@ -81,24 +81,30 @@ def installed_codex_tectonic():
     """Resolve the current user's registered app, even in a stale service environment."""
     if os.name != 'nt':
         return None
-    # Appx is a Windows PowerShell module. Query registrations rather than
-    # enumerating the protected WindowsApps tree or guessing a version folder.
+    # Appx is a Windows PowerShell module. New desktop versions ship Tectonic
+    # in the separately registered primary runtime, with the version in its name.
     powershell = Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
     script = ('[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; '
-              '@(Get-AppxPackage -Name OpenAI.Codex -ErrorAction Stop | '
-              'Select-Object -ExpandProperty InstallLocation) | ConvertTo-Json -Compress')
+              '$runtime = @(Get-AppxPackage -Name OpenAI.CodexPrimaryRuntime.* -ErrorAction Stop | '
+              'Sort-Object Version -Descending | Select-Object -ExpandProperty InstallLocation); '
+              '$desktop = @(Get-AppxPackage -Name OpenAI.Codex -ErrorAction Stop | '
+              'Sort-Object Version -Descending | Select-Object -ExpandProperty InstallLocation); '
+              'ConvertTo-Json -InputObject @{runtime=$runtime; desktop=$desktop} -Compress')
     try:
         result = subprocess.run([str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
             capture_output=True, text=True, encoding='utf-8', timeout=20,
             creationflags=subprocess.CREATE_NO_WINDOW)
         if result.returncode:
             return None
-        locations = json.loads(result.stdout or '[]')
-        if isinstance(locations, str):
-            locations = [locations]
+        packages = json.loads(result.stdout or '{}')
+        if not isinstance(packages, dict):
+            return None
         return existing_executable(
-            Path(location) / 'app/resources/tectonic/tectonic.exe'
-            for location in locations if isinstance(location, str) and Path(location).is_absolute())
+            Path(location) / relative
+            for family, relative in (('runtime', 'dependencies/native/tectonic/tectonic.exe'),
+                                     ('desktop', 'app/resources/tectonic/tectonic.exe'))
+            for location in packages.get(family, [])
+            if isinstance(location, str) and Path(location).is_absolute())
     except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
         return None
 
