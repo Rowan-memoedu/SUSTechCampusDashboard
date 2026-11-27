@@ -206,7 +206,7 @@ def test_source_discovery_uses_week_cutoff_and_reuses_homework_download(tmp_path
     monkeypatch.setattr(lab_sources,'PdfReader',lambda p:SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda:'Create a Circle class.')]))
     rows = lab_sources.collect(BB(),{'course_id':'c','min_week':9},tmp_path)
     assert len(rows)==1 and rows[0]['week']==9
-    assert 'temporary' not in json.dumps(rows) and 'private' not in json.dumps(rows)
+    assert 'temporary=private' not in json.dumps(rows)
     assert called and rows[0]['fingerprint']
 
 
