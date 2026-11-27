@@ -2,6 +2,7 @@ import json
 import base64
 import hashlib
 import io
+import os
 import threading
 import zipfile
 from pathlib import Path
@@ -261,6 +262,44 @@ def test_lab_retries_candidate_without_an_executable_run(tmp_path, monkeypatch):
     assert result['state'] == 'retry_wait' and result['stage'] == 'generate'
     assert result['data']['recovery']['kind'] == 'regenerate'
     assert not (root / 'candidate.json').exists()
+
+
+@pytest.mark.parametrize('diagnostic, phase', [
+    ('Exception in thread "main" java.lang.AssertionError: label color', 'generate'),
+    ('', 'verify'),
+])
+def test_lab_java_failure_respects_the_recovery_boundary(tmp_path, monkeypatch, diagnostic, phase):
+    from sustech_dashboard import lab_engine
+
+    e = engine(tmp_path, monkeypatch)
+    bin_dir = tmp_path / 'jdk' / 'bin'
+    bin_dir.mkdir(parents=True)
+    for executable in ('java', 'javac'):
+        (bin_dir / (executable + ('.exe' if os.name == 'nt' else ''))).touch()
+    e.store.set_setting('configuration', e.configuration() | {'java_home': str(bin_dir.parent)})
+    job = e.store.enqueue(assignment())
+    root = e.setup(job)
+    candidate = root / 'candidate.json'
+    review = root / 'independent-review.json'
+    candidate.write_text(json.dumps({'tasks': [{'files': [{'path': 'src/Check.java', 'solution': 'class Check {}',
+                                                            'starter': 'class Check {}'}], 'tests': [],
+                                               'runs': [{'main_class': 'Check', 'stdin': '', 'stdout': ''}]}]}))
+    review.write_text('{}')
+    e.store.update(job['id'], stage='verify', data=job['data'] | {
+        'protected': {}, 'candidate_sha': lab_engine.file_sha(candidate), 'review_sha': lab_engine.file_sha(review)})
+
+    def run(args, cwd, log, *other, **kwargs):
+        if log.name == 'run-0.txt':
+            log.with_suffix('.stderr.log').write_text(diagnostic, encoding='utf-8')
+            raise StageFailure('本地运行中断', kind='retry')
+
+    monkeypatch.setattr(lab_engine, 'command', run)
+    assert e.step()
+    result = e.store.get(job['id'])
+    assert result['stage'] == phase
+    assert result['state'] == 'retry_wait'
+    if diagnostic:
+        assert 'label color' in result['error']
 
 
 def test_new_source_publish_never_replaces_a_racing_learner_file(tmp_path, monkeypatch):
