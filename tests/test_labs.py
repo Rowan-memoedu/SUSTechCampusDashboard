@@ -244,6 +244,25 @@ def test_lab_discovery_never_renders_pdf_or_copies_booklet_tools(tmp_path, monke
     assert set(result['data']['protected'])=={'source.pdf','input.json'}
 
 
+def test_lab_retries_candidate_without_an_executable_run(tmp_path, monkeypatch):
+    e = engine(tmp_path, monkeypatch)
+    e.next_scan = float('inf')
+    job = e.store.enqueue(assignment() | {'oj': []})
+    root = e.setup(job)
+    (root / 'input.json').write_text('{}', encoding='utf-8')
+    e.store.update(job['id'], stage='generate', data=job['data'] | {'protected': {}})
+    monkeypatch.setattr(e, 'ai', lambda *args, **kwargs: {
+        'status': 'ready', 'notes': '', 'tasks': [{'pid': '', 'runs': []}],
+    })
+
+    assert e.step()
+
+    result = e.store.get(job['id'])
+    assert result['state'] == 'retry_wait' and result['stage'] == 'generate'
+    assert result['data']['recovery']['kind'] == 'regenerate'
+    assert not (root / 'candidate.json').exists()
+
+
 def test_new_source_publish_never_replaces_a_racing_learner_file(tmp_path, monkeypatch):
     path=tmp_path/'Person.java'
     real_link=lab_idea.os.link
