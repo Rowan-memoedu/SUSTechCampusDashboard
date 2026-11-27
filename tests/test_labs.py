@@ -264,6 +264,26 @@ def test_lab_retries_candidate_without_an_executable_run(tmp_path, monkeypatch):
     assert not (root / 'candidate.json').exists()
 
 
+def test_lab_preserves_frozen_oj_markdown_spacing_without_reverting_translation(tmp_path, monkeypatch):
+    e = engine(tmp_path, monkeypatch)
+    original = '题面\n\n```java\nclass Main {}\n```\n'
+    translated = '输出整数。\n'
+    oj = [{'pid': 'T1', 'content': original}, {'pid': 'T2', 'content': 'Output an integer.\n'}]
+    job = e.store.enqueue(assignment() | {'oj': oj})
+    root = e.setup(job)
+    (root / 'input.json').write_text('{}', encoding='utf-8')
+    job = e.store.update(job['id'], stage='generate', data=job['data'] | {'protected': {}})
+    monkeypatch.setattr(e, 'ai', lambda *args, **kwargs: {'status': 'ready', 'notes': '', 'tasks': [
+        {'pid': 'T1', 'markdown': original.replace('\n\n', '\n'), 'runs': [{}]},
+        {'pid': 'T2', 'markdown': translated, 'runs': [{}]},
+    ]})
+
+    e.generate(job)
+
+    candidate = json.loads((root / 'candidate.json').read_text(encoding='utf-8'))
+    assert [task['markdown'] for task in candidate['tasks']] == [original, translated]
+
+
 @pytest.mark.parametrize('diagnostic, phase', [
     ('Exception in thread "main" java.lang.AssertionError: label color', 'generate'),
     ('', 'verify'),

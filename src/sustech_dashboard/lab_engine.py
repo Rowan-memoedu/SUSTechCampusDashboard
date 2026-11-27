@@ -141,7 +141,8 @@ markdown 只放完整中文题面、提交要求、输入输出和样例，不�
 tests 是仅供宿主验证的额外 Java 文件，path 以 tests/ 开头。只有需要类或方法级断言时才添加。
 runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必要边界。每道题至少有一个 runs。无命令行入口的题可在 tests 中提供独立的公开静态 main，从 runs 调用。绘图题用离屏绘图测试，不能启动可见窗口。
 离屏绘图测试对题面明确的图形、位置、文字及颜色分别断言。文字颜色从预期文字覆盖区的实际像素核对，例如用独立绘制得到预期字形及颜色，再比较覆盖区的颜色分量。只判断像素与背景是否不同、只读取绘图上下文当前颜色或只确认绘制成功，都不能验证指定颜色。断言应能区分只改错颜色、只移错位置或只替换文字的实现。
-图形轮廓从原题独立推导，避免把待测坐标、背景、字体或实现当作预期。题面规定像素或整数几何时，核对边界、填色与背景，也检查裁切后仍可见的边界。只有示意图时，可用多个截面、颜色覆盖率和形状极值共同核对轮廓，再由识别出的形状相互比较行列、顺序和间隔。对标签，检查各自所属的形状、所在区域、文字及题定颜色。未给绝对坐标或字体时，不要把固定像素或某个字形写成要求，可以用独立的字形预期、绘制调用记录或相对位置核对。容差仍须能区分截断、缺角和错误形状。
+图形轮廓从原题独立推导，避免把待测坐标、背景、字体或实现当作预期。题面规定像素或整数几何时，核对边界、填色与背景，也检查裁切后仍可见的边界。只有示意图时，用截面、连续边缘和形状极值共同核对轮廓，再比较图形间的行列、顺序和间隔。检查全画布的额外标记及透明缺口。允许贴着轮廓、可由题定前景和背景混合得到的抗锯齿边缘，保持对边缘之外的错误绘制敏感。
+对标签，检查各自所属的图形、区域、原文及题定颜色。字体与栅格化未规定时，用实际绘图上下文的字体、变换和渲染设置解释像素，但预期文字和颜色仍须来自原题。若用记录器，保留 Swing 绘图上下文的公开能力并委托实际渲染，避免用某个绘制方法名或调用次数代替输出检查。检查标签周围背景及其他区域，避免漏过多余文字或墨迹。
 生成的 Java 文件受本地能力检查约束。标准输入可用 Scanner 读取，输出可用 System.out；不得使用 java.io、java.nio、java.net、反射或重定向标准流。原题确实依赖这些能力时，返回 needs_attention 并指出所需能力。
 所有文件只通过结构化结果返回，不改工作区内文件。''', PACKAGE, images=images, read_only=True)
         self.check_sources(root, data)
@@ -151,10 +152,14 @@ runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必�
             raise StageFailure('未生成任何明确题目', kind='blocked')
         if any(not task['runs'] for task in result['tasks']):
             raise StageFailure('每道 Lab 题目至少需要一项可执行的 runs 测试', kind='regenerate', phase='generate')
-        expected = {x['pid'] for x in data['assignment']['oj']}
+        frozen_oj = {x['pid']: x.get('content', '') for x in data['assignment']['oj']}
         actual = [t['pid'] for t in result['tasks'] if t['pid']]
-        if set(actual) != expected or len(actual) != len(set(actual)):
+        if set(actual) != frozen_oj.keys() or len(actual) != len(set(actual)):
             raise StageFailure('生成题目与实际 OJ training 不一致', kind='regenerate', phase='generate')
+        for task in result['tasks']:
+            original = frozen_oj.get(task['pid'])
+            if original and original.split() == task['markdown'].split():
+                task['markdown'] = original  # Preserve original Markdown spacing when the text was copied.
         save(root / 'candidate.json', result)
         data['candidate_sha'] = file_sha(root / 'candidate.json')
         self.store.update(job['id'], state='queued', stage='review', data=data)
