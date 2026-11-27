@@ -1,5 +1,7 @@
 # 第二阶段执行交接
 
+Lab 的私有运行配置可选 `mac_worker`，内含现有可信 SSH `host` 和 Mac 上校园面板虚拟环境的 `python` 绝对路径。Windows 仍负责 Blackboard/OJ 原始读取、冻结、编译验收、课程文件发布和 IDEA 连接。Mac 仅执行已冻结材料的 Lab 生成和独立审核，复用 Mac 本机 Codex CLI 身份。回执绑定原始 PDF、原图、题面及候选的 SHA-256。未配置时继续使用本机后端。
+
 **0.5.42 Windows 已通过统一发布流程并通过正式更新器安装到日常本机。**作业制册可从 Windows 已注册的 Codex 主运行时包发现 Tectonic，旧桌面包路径仍可回退。修复通过 87 项专项测试和独立样例的实际 PDF 编译。固定产品提交 `e974d84ba60a32cfbdec1a6405f707b491122c7f` 的[源码回归](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45110675648)、[标准用户安装](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45110766092)和[旧版签名升级](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45112346768)均通过。本机与公开分发的版本、提交和 Windows 产物哈希一致。
 
 教材副本命名、冻结发现检查点、解答输入与分问覆盖见[0.5.41 验收](RELEASE-0.5.41-ACCEPTANCE.md)，现行机制见[作业工作流](HOMEWORK-WORKFLOW.md)。图片排版及首次故障等待机制见[0.5.39 历史验收](RELEASE-0.5.39-ACCEPTANCE.md)。0.5.37、0.5.38 及 0.5.40 的未完成批次与失败回执保留。

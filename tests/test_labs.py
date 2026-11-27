@@ -1,4 +1,5 @@
 import json
+import base64
 import hashlib
 import io
 import threading
@@ -13,6 +14,29 @@ from sustech_dashboard import lab_idea, lab_sources
 from sustech_dashboard.lab_engine import LabEngine
 from sustech_dashboard.lab_routes import register_labs
 from sustech_dashboard.homework_recovery import StageFailure
+
+
+def test_mac_lab_generation_request_is_bound_to_the_original_frozen_files():
+    from sustech_dashboard import lab_worker
+
+    files = {name: {'data': base64.b64encode(raw).decode(), 'sha256': lab_worker.sha(raw)}
+             for name, raw in {'input.json': b'{}', 'source.pdf': b'%PDF test', 'feedback.json': b'[]'}.items()}
+    payload = {'version': 1, 'stage': 'lab-generate', 'prompt': 'fixture', 'schema': {}, 'images': [], 'files': files}
+
+    def run(root, stage, prompt, schema, images):
+        assert stage == 'lab-generate'
+        assert (root/'input.json').read_bytes() == b'{}'
+        assert not (root/'candidate.json').exists()
+        return {'status':'ready'}
+
+    raw = json.dumps(payload).encode()
+    result = lab_worker.execute(raw, SimpleNamespace(run=run))
+    assert result == {'stage':'lab-generate','result':{'status':'ready'},'input_sha256':lab_worker.sha(raw)}
+    payload['files']['source.pdf']['sha256'] = '0'*64
+    with pytest.raises(ValueError, match='hash mismatch'):
+        lab_worker.execute(json.dumps(payload).encode(), SimpleNamespace(run=run))
+    with pytest.raises(ValueError):
+        lab_worker.filenames('lab-generate', ['../account.json'])
 
 
 def project(tmp_path):

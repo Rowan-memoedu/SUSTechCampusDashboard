@@ -50,7 +50,9 @@ class LabEngine(HomeworkEngine):
         self.next_scan = 0
 
     def settings(self):
-        return self.shared.settings()
+        settings = self.shared.settings()
+        worker = self.configuration().get('mac_worker')
+        return settings | {'mac_lab_worker': worker} if worker else settings
 
     def setup(self, job):
         root = self.workspace(job)
