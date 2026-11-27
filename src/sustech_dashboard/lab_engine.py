@@ -138,7 +138,7 @@ files 的 path 以 src/ 开头，包含 starter 和 solution；原题示例入�
 markdown 只放完整中文题面、提交要求、输入输出和样例，不放题解、实现思路或复杂度。
 实现思路只作为 solution 代码前的简短注释，步骤和复杂度只作为 solution 代码后的注释。
 tests 是仅供宿主验证的额外 Java 文件，path 以 tests/ 开头。只有需要类或方法级断言时才添加。
-runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必要边界。用 runs 验证命令行输入输出。
+runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必要边界。每道题至少有一个 runs。无命令行入口的题可在 tests 中提供独立的公开静态 main，从 runs 调用。绘图题用离屏绘图测试，不能启动可见窗口。
 生成的 Java 文件受本地能力检查约束。标准输入可用 Scanner 读取，输出可用 System.out；不得使用 java.io、java.nio、java.net、反射或重定向标准流。原题确实依赖这些能力时，返回 needs_attention 并指出所需能力。
 所有文件只通过结构化结果返回，不改工作区内文件。''', PACKAGE, images=images, read_only=True)
         self.check_sources(root, data)
@@ -146,6 +146,8 @@ runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必�
             raise StageFailure(result['notes'] or '题目需要补充来源', kind='blocked')
         if not result['tasks']:
             raise StageFailure('未生成任何明确题目', kind='blocked')
+        if any(not task['runs'] for task in result['tasks']):
+            raise StageFailure('每道 Lab 题目至少需要一项可执行的 runs 测试', kind='regenerate', phase='generate')
         expected = {x['pid'] for x in data['assignment']['oj']}
         actual = [t['pid'] for t in result['tasks'] if t['pid']]
         if set(actual) != expected or len(actual) != len(set(actual)):
@@ -164,7 +166,7 @@ runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必�
 逐条核对原题成员、包名、访问修饰符、构造器、输出、所有样例及测试预期。
 确认题面中文完整，骨架只用 //Todo，未加题外校验或辅助设计。
 检查所有原题都已覆盖；PDF 提供的原始 main 未被改写；测试不是抄实现自证。
-命令行样例应通过 runs 检验。检查生成的 Java 文件是否调用了本地不允许的 java.io、java.nio、java.net、反射或标准流重定向。
+每道题至少有一个 runs，入口来自候选 Java 源文件，命令行样例应由 runs 实际传入输入并核对输出。检查 Java 文件是否调用了本地禁止的 java.io、java.nio、java.net、反射或标准流重定向。
 不执行代码、不改文件，不把生成器的自述视为审核证据。任何实质错误返回 FAIL。''', REVIEW, images=images, read_only=True)
         self.check_sources(root, data)
         if file_sha(root / 'candidate.json') != data['candidate_sha']:
