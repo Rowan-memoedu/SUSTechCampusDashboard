@@ -167,7 +167,12 @@ API 后端可用 workspace_file 的 list/read/write/image/pdf_text/pdf_render；
         if images:
             instruction += '\n本轮已直接附上以下全部原尺寸页面图，按附图顺序逐张核读：\n' + '\n'.join(images)
         settings = self.settings() | ({'read_only': True} if read_only else {})
-        result = backend(settings, self.stop).run(root, stage, self.prompt(root, stage, instruction), schema, images=images)
+        prompt = self.prompt(root, stage, instruction)
+        if read_only and settings.get('mac_lab_worker'):
+            from .lab_worker import run_on_mac
+            result = run_on_mac(settings['mac_lab_worker'], root, stage, prompt, schema, images, self.stop)
+        else:
+            result = backend(settings, self.stop).run(root, stage, prompt, schema, images=images)
         current_names = {str(p.relative_to(root / 'workflow')) for p in (root / 'workflow').rglob('*') if p.is_file() and '__pycache__' not in p.parts}
         if current_names != set(assets):
             raise ValueError('AI 增删了受保护的制册工具，本阶段未通过')

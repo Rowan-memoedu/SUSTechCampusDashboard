@@ -50,7 +50,9 @@ class LabEngine(HomeworkEngine):
         self.next_scan = 0
 
     def settings(self):
-        return self.shared.settings()
+        settings = self.shared.settings()
+        worker = self.configuration().get('mac_worker')
+        return settings | {'mac_lab_worker': worker} if worker else settings
 
     def setup(self, job):
         root = self.workspace(job)
@@ -135,8 +137,9 @@ source 是 OJ 单文件提交路径，应优先沿用 existing_sources 的绑定
 files 的 path 以 src/ 开头，包含 starter 和 solution；原题示例入口可在两者保留完整相同代码。
 markdown 只放完整中文题面、提交要求、输入输出和样例，不放题解、实现思路或复杂度。
 实现思路只作为 solution 代码前的简短注释，步骤和复杂度只作为 solution 代码后的注释。
-tests 是仅供宿主验证的额外 Java 文件，path 以 tests/ 开头；不部署到学习工程。
-runs 提供可执行 main_class、stdin 和完整精确 stdout，包含全部样例和必要边界。
+tests 是仅供宿主验证的额外 Java 文件，path 以 tests/ 开头。只有需要类或方法级断言时才添加。
+runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必要边界。用 runs 验证命令行输入输出。
+生成的 Java 文件受本地能力检查约束。标准输入可用 Scanner 读取，输出可用 System.out；不得使用 java.io、java.nio、java.net、反射或重定向标准流。原题确实依赖这些能力时，返回 needs_attention 并指出所需能力。
 所有文件只通过结构化结果返回，不改工作区内文件。''', PACKAGE, images=images, read_only=True)
         self.check_sources(root, data)
         if result['status'] != 'ready':
@@ -161,6 +164,7 @@ runs 提供可执行 main_class、stdin 和完整精确 stdout，包含全部样
 逐条核对原题成员、包名、访问修饰符、构造器、输出、所有样例及测试预期。
 确认题面中文完整，骨架只用 //Todo，未加题外校验或辅助设计。
 检查所有原题都已覆盖；PDF 提供的原始 main 未被改写；测试不是抄实现自证。
+命令行样例应通过 runs 检验。检查生成的 Java 文件是否调用了本地不允许的 java.io、java.nio、java.net、反射或标准流重定向。
 不执行代码、不改文件，不把生成器的自述视为审核证据。任何实质错误返回 FAIL。''', REVIEW, images=images, read_only=True)
         self.check_sources(root, data)
         if file_sha(root / 'candidate.json') != data['candidate_sha']:
