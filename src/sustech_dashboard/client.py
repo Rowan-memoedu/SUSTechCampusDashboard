@@ -17,9 +17,14 @@ def main():
     parser.add_argument("--local-only", action="store_true", default=True, help="兼容旧参数；默认始终进入本机面板")
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument('--verify-frozen-lab', metavar='FIXTURE', help=argparse.SUPPRESS)
     parser.add_argument("--agent", action="store_true", help="连接自己服务器的执行主机客户端（附件下载与打印）")
     parser.add_argument('--connect-uri', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.verify_frozen_lab:
+        from .lab_canary import verify_fixture
+        verify_fixture(args.verify_frozen_lab)
+        return 0
     if args.connect_uri:
         from .protocol import parse_uri
         parse_uri(args.connect_uri)

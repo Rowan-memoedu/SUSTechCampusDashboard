@@ -17,6 +17,17 @@ from sustech_dashboard.lab_routes import register_labs
 from sustech_dashboard.homework_recovery import StageFailure
 
 
+def test_packaged_lab_verification_never_uses_the_owner_data_root(tmp_path, monkeypatch):
+    from sustech_dashboard import lab_canary
+
+    monkeypatch.setenv('SUSTECH_DASHBOARD_DATA_ROOT', str(tmp_path))
+    monkeypatch.setattr(lab_canary, 'DATA_ROOT', tmp_path)
+    monkeypatch.setattr(lab_canary, 'default_data_root', lambda: tmp_path)
+    with pytest.raises(ValueError, match='explicit isolated data directory'):
+        lab_canary.verify_fixture(tmp_path / 'fixture.json')
+    assert not (tmp_path / 'lab-verification').exists()
+
+
 def test_mac_lab_generation_request_is_bound_to_the_original_frozen_files():
     from sustech_dashboard import lab_worker
 
