@@ -2,7 +2,9 @@
 
 Lab 的私有运行配置可选 `mac_worker`，内含现有可信 SSH `host` 和 Mac 上校园面板虚拟环境的 `python` 绝对路径。Windows 仍负责 Blackboard/OJ 原始读取、冻结、编译验收、课程文件发布和 IDEA 连接。Mac 仅执行已冻结材料的 Lab 生成和独立审核，复用 Mac 本机 Codex CLI 身份。回执绑定原始 PDF、原图、题面及候选的 SHA-256。未配置时继续使用本机后端。
 
-**0.5.42 Windows 已通过统一发布流程并通过正式更新器安装到日常本机。**作业制册可从 Windows 已注册的 Codex 主运行时包发现 Tectonic，旧桌面包路径仍可回退。修复通过 87 项专项测试和独立样例的实际 PDF 编译。固定产品提交 `e974d84ba60a32cfbdec1a6405f707b491122c7f` 的[源码回归](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45110675648)、[标准用户安装](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45110766092)和[旧版签名升级](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45112346768)均通过。本机与公开分发的版本、提交和 Windows 产物哈希一致。
+**0.5.46 Windows 已经由原 TUF 更新器安装到维护者日常实例。** 统一发布产物的冻结 Lab 小样取得了 Mac 生成和独立审核回执，并通过 Windows Java 运行。维护者实例已启用可选 Mac worker。正式回读匹配原课号，Lab 账本和三份已有答案哈希一致。旧 0.5.42 安装与更新指针保留为回退。固定产品提交为 `04cd045508250970c8f972599a211723a8f3ed92`。 [正式发布](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/releases/tag/v0.5.46) · [标准用户安装](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/46088422198) · [旧版签名升级](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/46089902586)
+
+0.5.42 让作业制册从 Windows 已注册的 Codex 主运行时包发现 Tectonic，旧桌面包路径仍可回退。修复通过 87 项专项测试和独立样例的实际 PDF 编译。固定产品提交 `e974d84ba60a32cfbdec1a6405f707b491122c7f` 的[源码回归](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45110675648)、[标准用户安装](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45110766092)和[旧版签名升级](https://github.com/Rowan-memoedu/SUSTechCampusDashboard/actions/runs/45112346768)均通过。
 
 教材副本命名、冻结发现检查点、解答输入与分问覆盖见[0.5.41 验收](RELEASE-0.5.41-ACCEPTANCE.md)，现行机制见[作业工作流](HOMEWORK-WORKFLOW.md)。图片排版及首次故障等待机制见[0.5.39 历史验收](RELEASE-0.5.39-ACCEPTANCE.md)。0.5.37、0.5.38 及 0.5.40 的未完成批次与失败回执保留。
 
@@ -19,7 +21,7 @@ CS109 Lab 自动化沿用0.5.36的已验证机制：从 Week 9 开始获取 PDF 
 1. 先读阶段验收记录，再核对 Git 工作树和实际运行版本；保留已有改动。
 2. 读取总计划中的迁移顺序、精确删除清单和共享资源边界。旧 [HOSTED-PHASE1.md](HOSTED-PHASE1.md) 仅为历史与退役前证据，不能重新开通托管。
 3. 维护者 Python：`D:\Caches\SUSTechCampusDashboard-venv\Scripts\python.exe`；项目：`D:\Projects\SUSTechCampusDashboard`；构建缓存：`D:\Caches\SUSTechCampusDashboard`。
-4. 当前统一发布回执为 `D:\Artifacts\SUSTechCampusDashboard\releases\v0.5.42\state.json`，状态为 `complete`。实际运行包由 `D:\AppData\SUSTechCampusDashboard\updates\current.json` 选择，按其文件清单核验。真实数据位于同一私密数据根。安装入口为 `D:\Applications\fy\SUSTechCampusDashboard`。历史恢复证据保存在 `D:\Artifacts\SUSTechCampusDashboard` 下的 `unblock-20261117`、`unblock-20261115`、`lab-automation-20261110`、`unblock-20261108`、`content-detail-20261102`、`printing-repair-20261028`、`direct-open-sync-recovery-20261023` 和 `homework-extraction-recovery-20261021`。历史清空重装、迁移、隔离与恢复材料见对应阶段验收记录。
+4. 当前统一发布回执为 `D:\Artifacts\SUSTechCampusDashboard\releases\v0.5.46\state.json`，状态为 `complete`。实际运行包由 `D:\AppData\SUSTechCampusDashboard\updates\current.json` 选择，按其文件清单核验。真实数据位于同一私密数据根。安装入口为 `D:\Applications\fy\SUSTechCampusDashboard`。历史恢复证据保存在 `D:\Artifacts\SUSTechCampusDashboard` 下的 `unblock-20261117`、`unblock-20261115`、`lab-automation-20261110`、`unblock-20261108`、`content-detail-20261102`、`printing-repair-20261028`、`direct-open-sync-recovery-20261023` 和 `homework-extraction-recovery-20261021`。历史清空重装、迁移、隔离与恢复材料见对应阶段验收记录。
 5. 维护连接：`ubuntu@124.221.144.155`，保持主机密钥校验。公共入口 `/app/`，TUF `/campus-updates/`；nginx 与 GraspMemoEdu 共用，不能整文件重写或停掉共享服务。
 
 ## 下一步与执行边界
