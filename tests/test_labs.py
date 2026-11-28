@@ -264,24 +264,27 @@ def test_lab_retries_candidate_without_an_executable_run(tmp_path, monkeypatch):
     assert not (root / 'candidate.json').exists()
 
 
-def test_lab_preserves_frozen_oj_markdown_spacing_without_reverting_translation(tmp_path, monkeypatch):
+def test_lab_preserves_frozen_oj_markdown_without_reverting_translation(tmp_path, monkeypatch):
     e = engine(tmp_path, monkeypatch)
-    original = '题面\n\n```java\nclass Main {}\n```\n'
+    original = '# 原题标题\n\n## 题目描述\n\n```java\nclass Main {}\n```\n'
+    other_original = '题面\n\n样例\n'
     translated = '输出整数。\n'
-    oj = [{'pid': 'T1', 'content': original}, {'pid': 'T2', 'content': 'Output an integer.\n'}]
+    oj = [{'pid': 'T1', 'content': original}, {'pid': 'T2', 'content': other_original},
+          {'pid': 'T3', 'content': '## Description\nOutput an integer.\n'}]
     job = e.store.enqueue(assignment() | {'oj': oj})
     root = e.setup(job)
     (root / 'input.json').write_text('{}', encoding='utf-8')
     job = e.store.update(job['id'], stage='generate', data=job['data'] | {'protected': {}})
     monkeypatch.setattr(e, 'ai', lambda *args, **kwargs: {'status': 'ready', 'notes': '', 'tasks': [
-        {'pid': 'T1', 'markdown': original.replace('\n\n', '\n'), 'runs': [{}]},
-        {'pid': 'T2', 'markdown': translated, 'runs': [{}]},
+        {'pid': 'T1', 'markdown': original + '\n现场演示。', 'runs': [{}]},
+        {'pid': 'T2', 'markdown': other_original.replace('\n\n', '\n'), 'runs': [{}]},
+        {'pid': 'T3', 'markdown': translated, 'runs': [{}]},
     ]})
 
     e.generate(job)
 
     candidate = json.loads((root / 'candidate.json').read_text(encoding='utf-8'))
-    assert [task['markdown'] for task in candidate['tasks']] == [original, translated]
+    assert [task['markdown'] for task in candidate['tasks']] == [original, other_original, translated]
 
 
 @pytest.mark.parametrize('diagnostic, phase', [

@@ -131,7 +131,7 @@ class LabEngine(HomeworkEngine):
 source_images 是直接提取的 PDF 内嵌原图，不是推测的页面渲染。保留教师 DemoCode 中既有类、API、main 和项目结构，按原要求完成修改。
 只在缺少实现或验证所需的图表信息时返回 needs_attention。冻结 OJ 清单已有题面和样例时，以此清单确定题目集合。行政验收条款按原材料转述，其中缺项照实指出。
 只从原始输入重新生成，不读取 history 中的旧候选，也不在旧候选上改写。
-生成严格结构化课程包。overview 是完整中文的本周实验要求，保留期限和验收要求。
+生成严格结构化课程包。overview 是完整中文的本周实验要求，保留期限、本地练习说明和现场验收要求。Blackboard 的界面演示或其他本地要求写入 overview。已有中文 OJ 题面的 markdown 只保留冻结题面，宿主使用原始排版。
 每个 tasks 元素对应一个实际题目，slug 是简短英文标识。
 pid 仅从 input.json 的 oj 取值，非 OJ 题使用空字符串。
 source 是 OJ 单文件提交路径，应优先沿用 existing_sources 的绑定路径。
@@ -158,8 +158,12 @@ runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必�
             raise StageFailure('生成题目与实际 OJ training 不一致', kind='regenerate', phase='generate')
         for task in result['tasks']:
             original = frozen_oj.get(task['pid'])
-            if original and original.split() == task['markdown'].split():
-                task['markdown'] = original  # Preserve original Markdown spacing when the text was copied.
+            if not original:
+                continue
+            headings = re.findall(r'(?m)^ {0,3}#{1,6}[ \t]+([^\r\n]+)', original)
+            chinese_statement = any(heading.strip('# \t') in {'题目描述', '题目说明', '题意'} for heading in headings[:2])
+            if chinese_statement or original.split() == task['markdown'].split():
+                task['markdown'] = original
         save(root / 'candidate.json', result)
         data['candidate_sha'] = file_sha(root / 'candidate.json')
         self.store.update(job['id'], state='queued', stage='review', data=data)
@@ -171,7 +175,7 @@ runs 通过宿主直接传入 stdin 并对比 stdout，包含全部样例和必�
             raise StageFailure('受保护的候选课程包发生变化', kind='blocked')
         images = list(dict.fromkeys(p['path'] for p in json.loads((root / 'input.json').read_text(encoding='utf-8')).get('source_images', [])))
         result = self.ai(root, 'lab-independent-review', '''独立审核 input.json 的完整原文、教师源码、附带的原始图像和 candidate.json，不渲染 PDF 或生成图片。
-逐条核对原题成员、包名、访问修饰符、构造器、输出、所有样例及测试预期。
+逐条核对原题成员、包名、访问修饰符、构造器、输出、所有样例及测试预期。OJ 中文题面核对冻结原文，Blackboard 的本地实施要求和现场说明核对 overview。
 确认题面中文完整，骨架保留原始声明、教师已有的基础代码及不可修改入口。用原文核对被要求增加或修改的代码范围，逐个检查这些练习位置是否只留 //Todo，即使附件给了它们的完整解法。不要把无需修改的教师代码误当成答案泄漏。若内容正确，行政验收措辞缺项按原材料保留的说明可以通过。
 检查所有原题都已覆盖；PDF 提供的原始 main 未被改写；测试不是抄实现自证。
 每道题至少有一个 runs，入口来自候选 Java 源文件，命令行样例应由 runs 实际传入输入并核对输出。检查 Java 文件是否调用了本地禁止的 java.io、java.nio、java.net、反射或标准流重定向。
